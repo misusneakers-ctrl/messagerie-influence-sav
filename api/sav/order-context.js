@@ -36,6 +36,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       shopDomain: tenant.myshopify_domain,
       accessToken,
       orderNumber,
+      tenantSlug: tenant.slug,
     });
     if (!context) {
       sendJson(res, 404, { error: 'order_not_found' });
