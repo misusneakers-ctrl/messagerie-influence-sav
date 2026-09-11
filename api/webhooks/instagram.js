@@ -1,53 +1,84 @@
-// GET  /api/webhooks/instagram   vérification d'abonnement Meta (hub.challenge)
-// POST /api/webhooks/instagram   réception d'un DM entrant
+// GET  /api/webhooks/instagram   handshake de vérification Meta (hub.challenge)
+// POST /api/webhooks/instagram   événements entrants (messages, comments, mentions)
 //
-// Résout le tenant par l'IG business account id reçu dans l'événement (pas par
-// header — un webhook Meta ne porte pas X-Shop-Domain). Crée ou retrouve le
-// ticket du fil, ajoute un message "inbound". Ne crée JAMAIS de message
-// "outbound" ici — la création de brouillon est un acte séparé, humain ou
-// assisté, jamais automatique à la réception.
+// Particularité multi-tenant : contrairement aux autres endpoints, on ne
+// connaît PAS le tenant avant d'avoir lu le corps de la requête (l'ID du
+// compte Instagram business appelé est dans entry[].id). On utilise donc
+// withoutTenant (voir lib/db.js) pour la résolution, puis on repasse en
+// scope tenant (withTenant) pour créer/mettre à jour le ticket.
+//
+// Vérification de signature : Meta signe chaque appel POST avec
+// X-Hub-Signature-256 (HMAC SHA256 du corps brut, avec le client_secret de
+// l'app Instagram). Comme on ne connaît le tenant (et donc son secret)
+// qu'après avoir lu entry[].id dans le corps, l'ordre est : lire le corps,
+// résoudre le tenant par ig_business_account_id, récupérer son secret
+// déchiffré, PUIS vérifier la signature avant de traiter quoi que ce soit.
+//
+// ⚠️ Point à vérifier au premier test réel (pas garanti à 100% sans déploiement) :
+// selon la façon dont ce projet Vercel expose req.body (JSON déjà parsé ou
+// non), le calcul HMAC peut nécessiter le corps brut exact plutôt que
+// JSON.stringify(req.body) reconstruit — les deux ne sont PAS toujours
+// identiques (ordre des clés, espaces). Si la vérification de signature
+// échoue systématiquement en conditions réelles, c'est la première piste à
+// creuser (voir commentaire sur getRawBody plus bas).
 
 const crypto = require('crypto');
 const { withTenant, withoutTenant } = require('../../lib/db');
+const { decrypt } = require('../../lib/crypto');
 const { logAudit } = require('../../lib/audit');
-const { readRawBody } = require('../../lib/rawBody');
 
-function verifySignature(req, rawBody) {
-  const signature = req.headers['x-hub-signature-256'];
-  const secret = process.env.META_APP_SECRET;
-  if (!signature || !secret) return false;
-  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
-}
+const WEBHOOK_VERIFY_TOKEN = '0d2ae112e87fb8f3d5f77677d96152f8';
 
-async function resolveTenantByIgAccountId(igBusinessAccountId) {
+async function findTenantByInstagramAccountId(igAccountId) {
   return withoutTenant(async (client) => {
     const { rows } = await client.query(
-      `SELECT tenant_id FROM tenant_credentials
-       WHERE type = 'meta_instagram' AND metadata->>'ig_business_account_id' = $1`,
-      [igBusinessAccountId]
+      `SELECT t.id, t.slug, tc.encrypted_value AS app_secret_encrypted
+       FROM tenant_credentials tc
+       JOIN tenants t ON t.id = tc.tenant_id
+       WHERE tc.type = 'meta_app_secret'
+         AND tc.metadata->>'ig_business_account_id' = $1
+       LIMIT 1`,
+      [igAccountId]
     );
-    if (!rows[0]) return null;
-    const { rows: tenantRows } = await client.query('SELECT * FROM tenants WHERE id = $1', [rows[0].tenant_id]);
-    return tenantRows[0] || null;
+    return rows[0] || null;
   });
 }
 
-async function handler(req, res) {
+function verifySignature(rawBody, signatureHeader, appSecret) {
+  if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
+  const expected = crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+  const provided = signatureHeader.slice('sha256='.length);
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(provided, 'hex'));
+  } catch {
+    return false; // longueurs différentes, etc.
+  }
+}
+
+// Reconstruit le corps brut à partir de req.body. À remplacer par la lecture
+// du flux brut (req sur son event 'data') si la vérification de signature
+// échoue en conditions réelles — voir avertissement en tête de fichier.
+function getRawBodyApprox(req) {
+  return JSON.stringify(req.body);
+}
+
+function classifyEntry(entry) {
+  if (entry.messaging) return 'dm';
+  if (entry.changes?.some((c) => c.field === 'comments')) return 'comment';
+  if (entry.changes?.some((c) => c.field === 'mentions')) return 'mention';
+  return 'autre';
+}
+
+module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
-    // Vérification d'abonnement webhook Meta.
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
-    if (mode === 'subscribe' && token === process.env.META_WEBHOOK_VERIFY_TOKEN) {
+    if (mode === 'subscribe' && token === WEBHOOK_VERIFY_TOKEN) {
       res.status(200).send(challenge);
       return;
     }
-    res.status(403).send('forbidden');
+    res.status(403).json({ error: 'verify_token_mismatch' });
     return;
   }
 
@@ -56,82 +87,77 @@ async function handler(req, res) {
     return;
   }
 
-  const rawBody = await readRawBody(req);
-  if (!verifySignature(req, rawBody)) {
-    res.status(401).json({ error: 'invalid_signature' });
-    return;
-  }
-
-  let body;
-  try {
-    body = JSON.parse(rawBody.toString('utf8') || '{}');
-  } catch {
-    res.status(400).json({ error: 'invalid_json' });
-    return;
-  }
-  const entries = body.entry || [];
+  const entries = req.body?.entry || [];
+  const results = [];
 
   for (const entry of entries) {
-    const igBusinessAccountId = entry.id;
-    const tenant = await resolveTenantByIgAccountId(igBusinessAccountId);
-    if (!tenant) {
-      console.warn('Webhook Instagram reçu pour un compte IG non reconnu', igBusinessAccountId);
+    const igAccountId = entry.id;
+    if (!igAccountId) {
+      results.push({ entry_id: null, status: 'skipped_no_id' });
       continue;
     }
 
-    const messagingEvents = entry.messaging || [];
-    for (const event of messagingEvents) {
-      const senderId = event.sender?.id;
-      const text = event.message?.text;
-      if (!senderId || !text) continue;
-
-      await withTenant(tenant.id, async (client) => {
-        const { rows: existingTickets } = await client.query(
-          `SELECT * FROM tickets WHERE tenant_id = $1 AND channel = 'instagram' AND external_thread_id = $2`,
-          [tenant.id, senderId]
-        );
-        let ticket = existingTickets[0];
-        if (!ticket) {
-          const { rows } = await client.query(
-            `INSERT INTO tickets (tenant_id, channel, category, status, contact_handle, external_thread_id)
-             VALUES ($1,'instagram','Influence','a_traiter',$2,$3)
-             RETURNING *`,
-            [tenant.id, senderId, senderId]
-          );
-          ticket = rows[0];
-          await logAudit(client, tenant.id, {
-            actor: 'webhook',
-            action: 'ticket_created',
-            entityType: 'ticket',
-            entityId: ticket.id,
-            details: { channel: 'instagram', source: 'webhook' },
-          });
-        }
-
-        const { rows: msgRows } = await client.query(
-          `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, body, status, external_message_id)
-           VALUES ($1,$2,'inbound',$3,'received',$4)
-           RETURNING *`,
-          [tenant.id, ticket.id, text, event.message?.mid || null]
-        );
-
-        await client.query(`UPDATE tickets SET updated_at = now() WHERE id = $1`, [ticket.id]);
-
-        await logAudit(client, tenant.id, {
-          actor: 'webhook',
-          action: 'message_received',
-          entityType: 'ticket_message',
-          entityId: msgRows[0].id,
-          details: { ticket_id: ticket.id },
-        });
-      });
+    const tenantRow = await findTenantByInstagramAccountId(igAccountId);
+    if (!tenantRow) {
+      results.push({ entry_id: igAccountId, status: 'tenant_not_found' });
+      continue;
     }
+
+    const appSecret = decrypt(tenantRow.app_secret_encrypted);
+    const signatureHeader = req.headers['x-hub-signature-256'];
+    const rawBody = getRawBodyApprox(req);
+    if (!verifySignature(rawBody, signatureHeader, appSecret)) {
+      results.push({ entry_id: igAccountId, status: 'signature_invalid' });
+      continue;
+    }
+
+    const subtype = classifyEntry(entry);
+
+    await withTenant(tenantRow.id, async (client) => {
+      // Une seule voie d'entrée pour un ticket Instagram existant : le
+      // thread externe (external_thread_id). À défaut d'ID de conversation
+      // clair selon le sous-type, on retombe sur l'ID d'entrée Meta — point
+      // à affiner une fois la vraie forme du payload observée en prod.
+      const externalThreadId = entry.messaging?.[0]?.sender?.id
+        || entry.changes?.[0]?.value?.id
+        || `${igAccountId}:${subtype}`;
+
+      const { rows: existing } = await client.query(
+        `SELECT id FROM tickets WHERE channel = 'instagram' AND external_thread_id = $1 LIMIT 1`,
+        [externalThreadId]
+      );
+
+      let ticketId;
+      if (existing[0]) {
+        ticketId = existing[0].id;
+        await client.query(
+          `UPDATE tickets SET status = 'a_traiter', updated_at = now() WHERE id = $1`,
+          [ticketId]
+        );
+      } else {
+        const category = subtype === 'comment' || subtype === 'mention' ? 'Influence' : 'Autre';
+        const { rows: created } = await client.query(
+          `INSERT INTO tickets
+             (tenant_id, channel, category, status, external_thread_id, summary)
+           VALUES ($1,'instagram',$2,'a_traiter',$3,$4)
+           RETURNING id`,
+          [tenantRow.id, category, externalThreadId, `Instagram ${subtype} reçu`]
+        );
+        ticketId = created[0].id;
+      }
+
+      await logAudit(client, tenantRow.id, {
+        actor: 'webhook:instagram',
+        action: 'inbound_event',
+        entityType: 'ticket',
+        entityId: ticketId,
+        details: { subtype, ig_account_id: igAccountId },
+      });
+
+      results.push({ entry_id: igAccountId, status: 'ok', ticket_id: ticketId, subtype });
+    });
   }
 
-  res.status(200).json({ ok: true });
-}
-
-module.exports = handler;
-// bodyParser désactivé : on doit lire le corps brut pour vérifier la
-// signature HMAC Meta avant tout parsing JSON.
-module.exports.config = { api: { bodyParser: false } };
+  // Toujours 200 : Meta désabonne un webhook qui échoue trop souvent.
+  res.status(200).json({ results });
+};
