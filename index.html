@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Messagerie — BBP / Misü</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --border:#e3e6ea; --text:#1c2126; --muted:#6b7280;
+    --accent:#2563eb; --accent-bg:#eaf1ff; --green:#16a34a; --amber:#d97706; --red:#dc2626;
+    --radius:8px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--text);font-size:14px;}
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--panel);
+    border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;flex-wrap:wrap;}
+  header h1{font-size:15px;margin:0;font-weight:600;white-space:nowrap;}
+  .tenant-switch{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
+  .tenant-switch button{border:none;background:transparent;padding:5px 12px;border-radius:5px;
+    cursor:pointer;font-size:13px;color:var(--muted);}
+  .tenant-switch button.active{background:var(--accent);color:#fff;}
+  header .search{flex:1;min-width:160px;}
+  header input[type="text"]{width:100%;padding:7px 10px;border:1px solid var(--border);
+    border-radius:6px;font-size:13px;}
+  .btn{border:1px solid var(--border);background:var(--panel);padding:7px 12px;border-radius:6px;
+    cursor:pointer;font-size:13px;color:var(--text);white-space:nowrap;}
+  .btn:hover{background:var(--bg);}
+  .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .btn-primary:hover{background:#1d4ed8;}
+  .btn-primary:disabled{background:#93b4f5;border-color:#93b4f5;cursor:not-allowed;}
+  .btn-danger{color:var(--red);}
+
+  .layout{display:grid;grid-template-columns:190px 320px 1fr;height:calc(100vh - 53px);}
+  @media (max-width: 900px){ .layout{grid-template-columns:1fr;height:auto;} .col{border-right:none !important;border-bottom:1px solid var(--border);} }
+
+  .col{overflow-y:auto;border-right:1px solid var(--border);background:var(--panel);}
+  .col-nav{padding:14px 10px;background:var(--bg);}
+  .col-nav h2{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+    margin:14px 8px 6px;}
+  .col-nav h2:first-child{margin-top:2px;}
+  .nav-item{display:flex;justify-content:space-between;padding:7px 10px;border-radius:6px;
+    cursor:pointer;color:var(--text);font-size:13px;}
+  .nav-item:hover{background:#eceff2;}
+  .nav-item.active{background:var(--accent-bg);color:var(--accent);font-weight:600;}
+  .nav-item .count{color:var(--muted);font-size:12px;}
+  .nav-item.active .count{color:var(--accent);}
+
+  .ticket-list{padding:6px;}
+  .ticket-item{padding:10px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;border:1px solid transparent;}
+  .ticket-item:hover{background:var(--bg);}
+  .ticket-item.active{background:var(--accent-bg);border-color:#c7dafe;}
+  .ticket-item .row1{display:flex;justify-content:space-between;align-items:baseline;gap:6px;}
+  .ticket-item .name{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ticket-item .date{font-size:11px;color:var(--muted);white-space:nowrap;}
+  .ticket-item .meta{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;}
+  .ticket-item .summary{font-size:12px;color:var(--muted);margin-top:4px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+
+  .badge{display:inline-block;padding:2px 7px;border-radius:99px;font-size:11px;font-weight:600;}
+  .badge-cat{background:#f1f0fe;color:#5b21b6;}
+  .badge-status{background:#f3f4f6;color:#374151;}
+  .badge-status[data-status="a_traiter"]{background:#fef2f2;color:var(--red);}
+  .badge-status[data-status="a_valider"]{background:#fffbeb;color:var(--amber);}
+  .badge-status[data-status="resolu"]{background:#f0fdf4;color:var(--green);}
+  .badge-channel{background:#eef2ff;color:#4338ca;}
+
+  .empty{padding:30px 16px;color:var(--muted);font-size:13px;text-align:center;}
+
+  .detail{display:flex;flex-direction:column;height:100%;}
+  .detail-header{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--panel);}
+  .detail-header .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+  .detail-header h2{margin:0;font-size:16px;}
+  .detail-header .sub{color:var(--muted);font-size:12.5px;margin-top:3px;}
+  .field-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+  .field-row label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px;}
+  select, .field-row input[type="text"]{padding:5px 8px;border:1px solid var(--border);
+    border-radius:6px;font-size:12.5px;background:#fff;}
+
+  .influence-box{margin-top:10px;padding:8px 10px;border:1px dashed var(--border);border-radius:8px;
+    font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .influence-box .info strong{font-size:13px;}
+  .influence-search{display:none;margin-top:8px;padding:10px;background:var(--bg);border-radius:8px;}
+  .influence-search.open{display:block;}
+  .influence-results{max-height:180px;overflow-y:auto;margin-top:6px;}
+  .influence-result{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;
+    border-radius:6px;font-size:12.5px;}
+  .influence-result:hover{background:#fff;}
+
+  .thread{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:10px;}
+  .msg{max-width:70%;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.45;white-space:pre-wrap;}
+  .msg.inbound{align-self:flex-start;background:#f1f2f4;border-bottom-left-radius:2px;}
+  .msg.outbound{align-self:flex-end;background:var(--accent-bg);border-bottom-right-radius:2px;}
+  .msg .meta{display:flex;gap:6px;align-items:center;margin-top:6px;font-size:10.5px;color:var(--muted);}
+  .msg .status-pill{padding:1px 6px;border-radius:99px;font-weight:600;}
+  .status-pill[data-s="draft"]{background:#fef3c7;color:#92400e;}
+  .status-pill[data-s="validated"]{background:#dbeafe;color:#1e40af;}
+  .status-pill[data-s="sent"]{background:#dcfce7;color:#166534;}
+  .status-pill[data-s="rejected"]{background:#fee2e2;color:#991b1b;}
+  .status-pill[data-s="received"]{background:#e5e7eb;color:#374151;}
+  .msg .actions{display:flex;gap:6px;margin-top:6px;}
+  .msg .actions .btn{padding:3px 9px;font-size:11.5px;}
+
+  .composer{border-top:1px solid var(--border);padding:12px 18px;background:var(--panel);}
+  .composer textarea{width:100%;min-height:60px;padding:9px 10px;border:1px solid var(--border);
+    border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;}
+  .composer .row{display:flex;justify-content:space-between;margin-top:8px;align-items:center;}
+  .composer .hint{font-size:11.5px;color:var(--muted);}
+
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;
+    align-items:center;justify-content:center;z-index:50;}
+  .modal-backdrop.open{display:flex;}
+  .modal{background:#fff;border-radius:10px;padding:20px;width:420px;max-width:92vw;max-height:86vh;overflow-y:auto;}
+  .modal h3{margin:0 0 12px;font-size:15px;}
+  .modal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;}
+  .modal input, .modal select, .modal textarea{width:100%;padding:7px 9px;border:1px solid var(--border);
+    border-radius:6px;font-size:13px;font-family:inherit;}
+  .modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+  .toast{position:fixed;bottom:18px;right:18px;background:#1c2126;color:#fff;padding:10px 14px;
+    border-radius:8px;font-size:13px;z-index:100;display:none;max-width:320px;}
+  .toast.show{display:block;}
+  .toast.error{background:#7f1d1d;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Messagerie</h1>
+  <div class="tenant-switch" id="tenantSwitch">
+    <button data-tenant="bbp">BBP</button>
+    <button data-tenant="misu">Misü</button>
+  </div>
+  <div class="search">
+    <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
+  </div>
+  <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
+</header>
+
+<div class="layout">
+  <div class="col col-nav" id="navCol">
+    <h2>Statut</h2>
+    <div id="statusNav"></div>
+    <h2>Catégorie</h2>
+    <div id="categoryNav"></div>
+  </div>
+
+  <div class="col" id="listCol">
+    <div class="ticket-list" id="ticketList"><div class="empty">Chargement…</div></div>
+  </div>
+
+  <div class="col detail" id="detailCol">
+    <div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="newTicketModal">
+  <div class="modal">
+    <h3>Nouveau ticket</h3>
+    <label>Canal</label>
+    <select id="ntChannel">
+      <option value="instagram">Instagram</option>
+      <option value="email">Email</option>
+    </select>
+    <label>Catégorie</label>
+    <select id="ntCategory"></select>
+    <label>Nom du contact</label>
+    <input type="text" id="ntName" placeholder="Ex. Camille Durand" />
+    <label>Handle Instagram (sans @, si canal Instagram)</label>
+    <input type="text" id="ntHandle" placeholder="Ex. camille.durand" />
+    <label>Email (si canal email)</label>
+    <input type="text" id="ntEmail" placeholder="Ex. camille@exemple.com" />
+    <label>Numéro de commande lié (optionnel)</label>
+    <input type="text" id="ntOrder" placeholder="Ex. C294671" />
+    <label>Message initial reçu</label>
+    <textarea id="ntBody" rows="3" placeholder="Le message tel que reçu du contact…"></textarea>
+    <div class="actions">
+      <button class="btn" id="ntCancel">Annuler</button>
+      <button class="btn btn-primary" id="ntCreate">Créer le ticket</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CATEGORIES = ['Influence','SAV','Partenariat','Presse','B2B','Commande','Livraison','Retour','Paiement','Autre'];
+const STATUSES = [
+  ['a_traiter','À traiter'],
+  ['en_attente_client','En attente client'],
+  ['en_attente_interne','En attente interne'],
+  ['a_valider','À valider'],
+  ['resolu','Résolu'],
+  ['erreur','Erreur'],
+];
+
+const state = {
+  tenant: localStorage.getItem('msav_tenant') || 'bbp',
+  category: '',
+  status: '',
+  q: '',
+  tickets: [],
+  selectedTicket: null,
+  messages: [],
+  linkedProfile: null,
+};
+
+// ---------- API ----------
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Tenant-Slug': state.tenant,
+      ...(opts.headers || {}),
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  let payload = {};
+  try { payload = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const err = new Error(payload.error || `Erreur ${res.status}`);
+    err.payload = payload;
+    throw err;
+  }
+  return payload;
+}
+
+function toast(msg, isError) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = 'toast'; }, 3500);
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) + ' ' +
+      d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function statusLabel(s) {
+  const found = STATUSES.find(([k]) => k === s);
+  return found ? found[1] : s;
+}
+
+// ---------- Nav (statut / catégorie) ----------
+function renderNav() {
+  const statusNav = document.getElementById('statusNav');
+  statusNav.innerHTML = '';
+  const allStatus = document.createElement('div');
+  allStatus.className = 'nav-item' + (state.status === '' ? ' active' : '');
+  allStatus.textContent = 'Tous';
+  allStatus.onclick = () => { state.status = ''; renderNav(); loadTickets(); };
+  statusNav.appendChild(allStatus);
+  STATUSES.forEach(([key, label]) => {
+    const item = document.createElement('div');
+    item.className = 'nav-item' + (state.status === key ? ' active' : '');
+    item.textContent = label;
+    item.onclick = () => { state.status = key; renderNav(); loadTickets(); };
+    statusNav.appendChild(item);
+  });
+
+  const catNav = document.getElementById('categoryNav');
+  catNav.innerHTML = '';
+  const allCat = document.createElement('div');
+  allCat.className = 'nav-item' + (state.category === '' ? ' active' : '');
+  allCat.textContent = 'Toutes';
+  allCat.onclick = () => { state.category = ''; renderNav(); loadTickets(); };
+  catNav.appendChild(allCat);
+  CATEGORIES.forEach((cat) => {
+    const item = document.createElement('div');
+    item.className = 'nav-item' + (state.category === cat ? ' active' : '');
+    item.textContent = cat;
+    item.onclick = () => { state.category = cat; renderNav(); loadTickets(); };
+    catNav.appendChild(item);
+  });
+}
+
+// ---------- Liste de tickets ----------
+async function loadTickets() {
+  const listEl = document.getElementById('ticketList');
+  listEl.innerHTML = '<div class="empty">Chargement…</div>';
+  try {
+    const params = new URLSearchParams();
+    if (state.category) params.set('category', state.category);
+    if (state.status) params.set('status', state.status);
+    if (state.q) params.set('q', state.q);
+    const data = await api('/api/tickets?' + params.toString());
+    state.tickets = data.tickets || [];
+    renderTicketList();
+  } catch (err) {
+    listEl.innerHTML = '<div class="empty">Erreur de chargement : ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s == null ? '' : String(s);
+  return div.innerHTML;
+}
+
+function renderTicketList() {
+  const listEl = document.getElementById('ticketList');
+  if (state.tickets.length === 0) {
+    listEl.innerHTML = '<div class="empty">Aucun ticket ici.</div>';
+    return;
+  }
+  listEl.innerHTML = '';
+  state.tickets.forEach((t) => {
+    const item = document.createElement('div');
+    item.className = 'ticket-item' + (state.selectedTicket && state.selectedTicket.id === t.id ? ' active' : '');
+    const name = t.contact_name || t.contact_handle || t.contact_email || '(sans nom)';
+    item.innerHTML = `
+      <div class="row1">
+        <div class="name">${escapeHtml(name)}</div>
+        <div class="date">${fmtDate(t.updated_at)}</div>
+      </div>
+      <div class="meta">
+        <span class="badge badge-channel">${escapeHtml(t.channel)}</span>
+        <span class="badge badge-cat">${escapeHtml(t.category)}</span>
+        <span class="badge badge-status" data-status="${escapeHtml(t.status)}">${escapeHtml(statusLabel(t.status))}</span>
+      </div>
+      ${t.summary ? `<div class="summary">${escapeHtml(t.summary)}</div>` : ''}
+    `;
+    item.onclick = () => selectTicket(t.id);
+    listEl.appendChild(item);
+  });
+}
+
+// ---------- Détail d'un ticket ----------
+async function selectTicket(id) {
+  try {
+    const [ticketData, messagesData] = await Promise.all([
+      api('/api/tickets/' + id),
+      api('/api/tickets/' + id + '/messages'),
+    ]);
+    state.selectedTicket = ticketData.ticket;
+    state.messages = messagesData.messages || [];
+    state.linkedProfile = null;
+    renderTicketList();
+    await renderDetail();
+    if (state.selectedTicket.influence_relation_id) {
+      loadLinkedProfile(state.selectedTicket.influence_relation_id);
+    }
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function refreshSelectedTicket() {
+  if (!state.selectedTicket) return;
+  const id = state.selectedTicket.id;
+  const [ticketData, messagesData] = await Promise.all([
+    api('/api/tickets/' + id),
+    api('/api/tickets/' + id + '/messages'),
+  ]);
+  state.selectedTicket = ticketData.ticket;
+  state.messages = messagesData.messages || [];
+  renderTicketList();
+  await renderDetail();
+}
+
+async function loadLinkedProfile(relationId) {
+  try {
+    const data = await api('/api/profiles');
+    const found = (data.profiles || []).find((p) => p.relation.id === relationId);
+    state.linkedProfile = found || null;
+    renderInfluenceBox();
+  } catch (err) { /* pas bloquant */ }
+}
+
+async function renderDetail() {
+  const t = state.selectedTicket;
+  const detailCol = document.getElementById('detailCol');
+  const name = t.contact_name || t.contact_handle || t.contact_email || '(sans nom)';
+
+  const catOptions = CATEGORIES.map((c) => `<option value="${c}" ${c === t.category ?
