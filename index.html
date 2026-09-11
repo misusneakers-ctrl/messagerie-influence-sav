@@ -380,4 +380,323 @@ async function renderDetail() {
   const detailCol = document.getElementById('detailCol');
   const name = t.contact_name || t.contact_handle || t.contact_email || '(sans nom)';
 
-  const catOptions = CATEGORIES.map((c) => `<option value="${c}" ${c === t.category ?
+  const catOptions = CATEGORIES.map((c) => `<option value="${c}" ${c === t.category ? 'selected' : ''}>${c}</option>`).join('');
+  const statusOptions = STATUSES.map(([k, l]) => `<option value="${k}" ${k === t.status ? 'selected' : ''}>${l}</option>`).join('');
+
+  detailCol.innerHTML = `
+    <div class="detail-header">
+      <div class="top">
+        <div>
+          <h2>${escapeHtml(name)}</h2>
+          <div class="sub">
+            ${t.contact_handle ? '@' + escapeHtml(t.contact_handle) + ' · ' : ''}
+            ${t.contact_email ? escapeHtml(t.contact_email) + ' · ' : ''}
+            canal ${escapeHtml(t.channel)}
+          </div>
+        </div>
+        <button class="btn btn-danger" id="deleteBtnPlaceholder" style="visibility:hidden;">.</button>
+      </div>
+      <div class="field-row">
+        <div><label>Statut</label><select id="statusSelect">${statusOptions}</select></div>
+        <div><label>Catégorie</label><select id="categorySelect">${catOptions}</select></div>
+        <div><label>Commande liée</label><input type="text" id="orderInput" value="${escapeHtml(t.related_order_number || '')}" placeholder="Ex. C294671" /></div>
+        <div><label>Assigné à</label><input type="text" id="assignedInput" value="${escapeHtml(t.assigned_to || '')}" placeholder="Ex. Luc" /></div>
+      </div>
+      <div class="influence-box" id="influenceBox"></div>
+      <div class="influence-search" id="influenceSearch">
+        <input type="text" id="profileSearchInput" placeholder="Chercher un profil influence (nom, handle)…" />
+        <div class="influence-results" id="influenceResults"></div>
+        <div style="margin-top:8px;font-size:12px;color:var(--muted);">Pas trouvé ?
+          <a href="#" id="createProfileLink">Créer un nouveau profil influence</a> et le lier directement.
+        </div>
+      </div>
+    </div>
+    <div class="thread" id="thread"></div>
+    <div class="composer">
+      <textarea id="composerInput" placeholder="Écrire une réponse (brouillon)…"></textarea>
+      <div class="row">
+        <div class="hint">Un brouillon doit être validé avant envoi. L'envoi nécessite les identifiants du canal (Instagram) configurés pour cette marque.</div>
+        <button class="btn btn-primary" id="draftBtn">Enregistrer le brouillon</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('statusSelect').onchange = (e) => patchTicket({ status: e.target.value });
+  document.getElementById('categorySelect').onchange = (e) => patchTicket({ category: e.target.value });
+  document.getElementById('orderInput').onblur = (e) => patchTicket({ related_order_number: e.target.value });
+  document.getElementById('assignedInput').onblur = (e) => patchTicket({ assigned_to: e.target.value });
+  document.getElementById('draftBtn').onclick = createDraft;
+  document.getElementById('createProfileLink').onclick = (e) => { e.preventDefault(); openCreateProfileModal(); };
+  document.getElementById('profileSearchInput').oninput = debounce((e) => searchProfilesForTicket(e.target.value), 300);
+
+  renderInfluenceBox();
+  renderThread();
+}
+
+function renderInfluenceBox() {
+  const box = document.getElementById('influenceBox');
+  if (!box) return;
+  const t = state.selectedTicket;
+  if (t.influence_relation_id && state.linkedProfile) {
+    const acc = state.linkedProfile.account;
+    const rel = state.linkedProfile.relation;
+    box.innerHTML = `
+      <div class="info">🔗 Profil influence lié : <strong>${escapeHtml(acc.display_name)}</strong>
+        ${acc.instagram_handle ? ' · @' + escapeHtml(acc.instagram_handle) : ''}
+        · score ${rel.score_total ?? 0}/100 · ${escapeHtml(rel.relationship_status || '')}
+      </div>
+      <button class="btn" id="unlinkProfileBtn">Délier</button>
+    `;
+    document.getElementById('unlinkProfileBtn').onclick = () => patchTicket({ influence_relation_id: null });
+  } else if (t.influence_relation_id) {
+    box.innerHTML = `<div class="info">🔗 Profil influence lié (chargement…)</div>`;
+  } else {
+    box.innerHTML = `
+      <div class="info" style="color:var(--muted);">Aucun profil influence lié à cette discussion.</div>
+      <button class="btn" id="linkProfileBtn">Lier un profil influence</button>
+    `;
+    document.getElementById('linkProfileBtn').onclick = toggleInfluenceSearch;
+  }
+}
+
+function toggleInfluenceSearch() {
+  document.getElementById('influenceSearch').classList.toggle('open');
+}
+
+async function searchProfilesForTicket(q) {
+  const resultsEl = document.getElementById('influenceResults');
+  if (!q) { resultsEl.innerHTML = ''; return; }
+  resultsEl.innerHTML = '<div class="empty">Recherche…</div>';
+  try {
+    const data = await api('/api/profiles?q=' + encodeURIComponent(q));
+    const profiles = data.profiles || [];
+    if (profiles.length === 0) {
+      resultsEl.innerHTML = '<div class="empty">Aucun résultat.</div>';
+      return;
+    }
+    resultsEl.innerHTML = '';
+    profiles.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'influence-result';
+      row.innerHTML = `
+        <span>${escapeHtml(p.account.display_name)}${p.account.instagram_handle ? ' · @' + escapeHtml(p.account.instagram_handle) : ''}</span>
+        <button class="btn" style="padding:3px 9px;font-size:11.5px;">Lier</button>
+      `;
+      row.querySelector('button').onclick = () => patchTicket({ influence_relation_id: p.relation.id }).then(() => {
+        state.linkedProfile = p;
+        document.getElementById('influenceSearch').classList.remove('open');
+      });
+      resultsEl.appendChild(row);
+    });
+  } catch (err) {
+    resultsEl.innerHTML = '<div class="empty">Erreur : ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+async function patchTicket(fields) {
+  try {
+    const data = await api('/api/tickets/' + state.selectedTicket.id, { method: 'PATCH', body: fields });
+    state.selectedTicket = data.ticket;
+    if ('influence_relation_id' in fields) {
+      if (fields.influence_relation_id) {
+        // linkedProfile déjà posé par l'appelant dans le cas "lier depuis la recherche"
+      } else {
+        state.linkedProfile = null;
+      }
+      renderInfluenceBox();
+    }
+    renderTicketList();
+    toast('Ticket mis à jour.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// ---------- Fil de messages ----------
+function renderThread() {
+  const threadEl = document.getElementById('thread');
+  if (state.messages.length === 0) {
+    threadEl.innerHTML = '<div class="empty">Aucun message pour l\'instant.</div>';
+    return;
+  }
+  threadEl.innerHTML = '';
+  state.messages.forEach((m) => {
+    const div = document.createElement('div');
+    div.className = 'msg ' + m.direction;
+    let actions = '';
+    if (m.direction === 'outbound' && m.status === 'draft') {
+      actions = `<div class="actions"><button class="btn" data-action="validate" data-id="${m.id}">Valider</button></div>`;
+    } else if (m.direction === 'outbound' && m.status === 'validated') {
+      actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button></div>`;
+    }
+    div.innerHTML = `
+      <div>${escapeHtml(m.body)}</div>
+      <div class="meta">
+        <span class="status-pill" data-s="${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>
+        <span>${fmtDate(m.created_at)}</span>
+        ${m.error ? '<span style="color:var(--red);">· ' + escapeHtml(m.error) + '</span>' : ''}
+      </div>
+      ${actions}
+    `;
+    threadEl.appendChild(div);
+  });
+  threadEl.scrollTop = threadEl.scrollHeight;
+
+  threadEl.querySelectorAll('[data-action="validate"]').forEach((btn) => {
+    btn.onclick = () => validateMessage(btn.dataset.id);
+  });
+  threadEl.querySelectorAll('[data-action="send"]').forEach((btn) => {
+    btn.onclick = () => sendMessage(btn.dataset.id);
+  });
+}
+
+async function createDraft() {
+  const input = document.getElementById('composerInput');
+  const body = input.value.trim();
+  if (!body) return;
+  try {
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
+      method: 'POST',
+      body: { direction: 'outbound', body },
+    });
+    input.value = '';
+    await refreshSelectedTicket();
+    toast('Brouillon enregistré.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function validateMessage(messageId) {
+  const validatedBy = window.prompt('Valider ce brouillon en tant que :', 'Luc');
+  if (!validatedBy) return;
+  try {
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/validate', {
+      method: 'PATCH',
+      body: { validated_by: validatedBy },
+    });
+    await refreshSelectedTicket();
+    toast('Message validé.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function sendMessage(messageId) {
+  try {
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/send', {
+      method: 'POST',
+      body: { idempotency_key: crypto.randomUUID() },
+    });
+    await refreshSelectedTicket();
+    toast('Message envoyé.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+    await refreshSelectedTicket();
+  }
+}
+
+// ---------- Création de profil influence depuis un ticket ----------
+function openCreateProfileModal() {
+  const displayName = window.prompt('Nom affiché du profil influence :');
+  if (!displayName) return;
+  const igHandle = window.prompt('Handle Instagram (sans @, optionnel) :') || '';
+  createProfileAndLink(displayName, igHandle);
+}
+
+async function createProfileAndLink(displayName, igHandle) {
+  try {
+    const data = await api('/api/profiles', {
+      method: 'POST',
+      body: { display_name: displayName, instagram_handle: igHandle || undefined },
+    });
+    state.linkedProfile = data;
+    await patchTicket({ influence_relation_id: data.relation.id });
+    document.getElementById('influenceSearch').classList.remove('open');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// ---------- Nouveau ticket ----------
+function openNewTicketModal() {
+  const catSelect = document.getElementById('ntCategory');
+  catSelect.innerHTML = CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join('');
+  document.getElementById('newTicketModal').classList.add('open');
+}
+function closeNewTicketModal() {
+  document.getElementById('newTicketModal').classList.remove('open');
+  ['ntName','ntHandle','ntEmail','ntOrder','ntBody'].forEach((id) => { document.getElementById(id).value = ''; });
+}
+
+async function createTicketFromModal() {
+  const channel = document.getElementById('ntChannel').value;
+  const category = document.getElementById('ntCategory').value;
+  const contact_name = document.getElementById('ntName').value.trim();
+  const contact_handle = document.getElementById('ntHandle').value.trim();
+  const contact_email = document.getElementById('ntEmail').value.trim();
+  const related_order_number = document.getElementById('ntOrder').value.trim();
+  const initialBody = document.getElementById('ntBody').value.trim();
+
+  try {
+    const data = await api('/api/tickets', {
+      method: 'POST',
+      body: {
+        channel, category,
+        contact_name: contact_name || undefined,
+        contact_handle: contact_handle || undefined,
+        contact_email: contact_email || undefined,
+        related_order_number: related_order_number || undefined,
+      },
+    });
+    const ticket = data.ticket;
+    if (initialBody) {
+      await api('/api/tickets/' + ticket.id + '/messages', {
+        method: 'POST',
+        body: { direction: 'inbound', body: initialBody },
+      });
+    }
+    closeNewTicketModal();
+    await loadTickets();
+    selectTicket(ticket.id);
+    toast('Ticket créé.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// ---------- Init ----------
+function initTenantSwitch() {
+  const buttons = document.querySelectorAll('#tenantSwitch button');
+  buttons.forEach((btn) => {
+    if (btn.dataset.tenant === state.tenant) btn.classList.add('active');
+    btn.onclick = () => {
+      state.tenant = btn.dataset.tenant;
+      localStorage.setItem('msav_tenant', state.tenant);
+      buttons.forEach((b) => b.classList.toggle('active', b === btn));
+      state.selectedTicket = null;
+      document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+      loadTickets();
+    };
+  });
+}
+
+document.getElementById('searchInput').oninput = debounce((e) => { state.q = e.target.value; loadTickets(); }, 350);
+document.getElementById('newTicketBtn').onclick = openNewTicketModal;
+document.getElementById('ntCancel').onclick = closeNewTicketModal;
+document.getElementById('ntCreate').onclick = createTicketFromModal;
+document.getElementById('newTicketModal').addEventListener('click', (e) => {
+  if (e.target.id === 'newTicketModal') closeNewTicketModal();
+});
+
+initTenantSwitch();
+renderNav();
+loadTickets();
+</script>
+</body>
+</html>
