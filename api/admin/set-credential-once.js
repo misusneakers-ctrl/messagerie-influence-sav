@@ -4,6 +4,6 @@ curl -X POST https://messagerie-influence-sav.vercel.app/api/admin/set-credentia
   -d '{
     "tenant": "bbp",
     "type": "meta_instagram",
-    "value": "<COLLE_ICI_LE_TOKEN_IGAAf..._QUE_TU_AS_COPIE>",
+    "value": "IGAAfYZA3gscW9BZAFpDNm80b1BqOEx0N09hOWhINTNCYkhOZAWtlcFFyZAkF2RjVDdjBUMHNhTGRqM2hiR0dGR29SZAGYzOVBBVGJlR09JZAE9CZA1hIZAjlleGk4OE1NRFk1MGFoVjFZAVVpzdmpqYU1Lbm53QW9JNnIxcGFrYTUtZAVd4dwZDZD",
     "meta": {"ig_business_account_id": "17841404210763764"}
   }'
