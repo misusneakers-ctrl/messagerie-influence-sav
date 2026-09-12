@@ -191,6 +191,7 @@
   <div class="search" id="searchWrap">
     <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
   </div>
+  <button class="btn" id="syncInstagramBtn">🔄 Actualiser Instagram</button>
   <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
   <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
 </header>
@@ -1060,6 +1061,33 @@ function initQueueTabs() {
   });
   document.getElementById('queueProcessBtn').onclick = processQueueSelection;
 }
+
+// ---------- Sondage Instagram (connecteur lecture, phase B) ----------
+async function syncInstagram() {
+  const btn = document.getElementById('syncInstagramBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Actualisation…';
+  try {
+    const data = await api('/api/tickets/sync-instagram', { method: 'POST' });
+    const parts = [];
+    if (data.tickets_created) parts.push(`${data.tickets_created} nouveau${data.tickets_created > 1 ? 'x' : ''} ticket${data.tickets_created > 1 ? 's' : ''}`);
+    if (data.messages_created) parts.push(`${data.messages_created} nouveau${data.messages_created > 1 ? 'x' : ''} message${data.messages_created > 1 ? 's' : ''}`);
+    const summaryText = parts.length > 0 ? parts.join(', ') : 'rien de nouveau';
+    toast(`Instagram actualisé : ${summaryText}.`, (data.errors || []).length > 0);
+    if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
+  } catch (err) {
+    if (err.payload && err.payload.error === 'instagram_not_configured_for_tenant') {
+      toast('Instagram n\'est pas encore configuré pour cette marque.', true);
+    } else {
+      toast('Erreur : ' + err.message, true);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+document.getElementById('syncInstagramBtn').onclick = syncInstagram;
 
 // ---------- Bascule Boîte / File de validation ----------
 function setView(view) {
