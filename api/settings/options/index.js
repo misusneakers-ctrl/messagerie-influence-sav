@@ -14,8 +14,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     }
     const options = await withTenant(tenant.id, async (client) => {
       const { rows } = await client.query(
-        'SELECT * FROM ticket_field_options WHERE field = $1 ORDER BY sort_order, label',
-        [field]
+        // Correctif sécurité 2026-09-12 : filtre tenant_id explicite ajouté.
+        // RLS ne protège pas ici — le rôle de connexion (neondb_owner) a
+        // rolbypassrls = true, donc RLS est ignoré quelle que soit la policy.
+        // Sans ce filtre, la requête renvoyait les options de TOUS les
+        // tenants mélangées (fuite cross-tenant confirmée le 2026-09-12).
+        'SELECT * FROM ticket_field_options WHERE tenant_id = $1 AND field = $2 ORDER BY sort_order, label',
+        [tenant.id, field]
       );
       return rows;
     });
@@ -38,8 +43,10 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     try {
       const option = await withTenant(tenant.id, async (client) => {
         const { rows: maxRows } = await client.query(
-          'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM ticket_field_options WHERE field = $1',
-          [field]
+          // Même correctif : sans tenant_id, le sort_order suivant était
+          // calculé sur l'ensemble des tenants confondus.
+          'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM ticket_field_options WHERE tenant_id = $1 AND field = $2',
+          [tenant.id, field]
         );
         const { rows } = await client.query(
           `INSERT INTO ticket_field_options (tenant_id, field, label, sort_order)
