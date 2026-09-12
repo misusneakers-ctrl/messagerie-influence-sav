@@ -30,6 +30,10 @@
   .btn-primary:hover{background:#1d4ed8;}
   .btn-primary:disabled{background:#93b4f5;border-color:#93b4f5;cursor:not-allowed;}
   .btn-danger{color:var(--red);}
+  .view-switch{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
+  .view-switch button{border:none;background:transparent;padding:5px 12px;border-radius:5px;
+    cursor:pointer;font-size:13px;color:var(--muted);}
+  .view-switch button.active{background:var(--text);color:#fff;}
 
   .layout{display:grid;grid-template-columns:190px 320px 1fr;height:calc(100vh - 53px);}
   @media (max-width: 900px){ .layout{grid-template-columns:1fr;height:auto;} .col{border-right:none !important;border-bottom:1px solid var(--border);} }
@@ -61,6 +65,9 @@
   .badge-cat{background:#f1f0fe;color:#5b21b6;}
   .badge-status{background:#f3f4f6;color:#374151;}
   .badge-channel{background:#eef2ff;color:#4338ca;}
+  .badge-alert{background:#fef3c7;color:#92400e;}
+  .badge-alert.bad{background:#fee2e2;color:#991b1b;}
+  .badge-score{background:#ecfdf5;color:#065f46;}
 
   .empty{padding:30px 16px;color:var(--muted);font-size:13px;text-align:center;}
 
@@ -136,6 +143,37 @@
   .opt-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .opt-default-btn, .opt-rename-btn, .opt-delete-btn{padding:2px 6px;font-size:12px;}
   .opt-default-pill{background:#dbeafe;color:#1e40af;white-space:nowrap;}
+
+  /* ---------- File de validation (traitement en lot) ---------- */
+  .queue-view{padding:0;}
+  .queue-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--border);
+    position:sticky;top:53px;z-index:5;flex-wrap:wrap;}
+  .queue-tabs{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
+  .queue-tabs button{border:none;background:transparent;padding:6px 14px;border-radius:5px;
+    cursor:pointer;font-size:13px;color:var(--muted);}
+  .queue-tabs button.active{background:var(--accent);color:#fff;}
+  .queue-tabs button .count{margin-left:4px;opacity:.8;}
+  .queue-list{padding:14px 18px;display:flex;flex-direction:column;gap:10px;max-width:920px;margin:0 auto;}
+  .queue-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;
+    display:flex;gap:12px;}
+  .queue-card.unsendable{opacity:.65;}
+  .queue-card .qc-check{padding-top:3px;}
+  .queue-card .qc-check input[type="checkbox"]{width:17px;height:17px;cursor:pointer;}
+  .queue-card .qc-body{flex:1;min-width:0;}
+  .queue-card .qc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;}
+  .queue-card .qc-name{font-weight:600;font-size:13.5px;}
+  .queue-card .qc-badges{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
+  .queue-card .qc-context{font-size:12px;color:var(--muted);margin-top:6px;
+    background:var(--bg);border-radius:6px;padding:7px 9px;white-space:pre-wrap;}
+  .queue-card .qc-alerts{margin-top:7px;display:flex;gap:5px;flex-wrap:wrap;}
+  .queue-card textarea{width:100%;min-height:64px;margin-top:8px;padding:9px 10px;
+    border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;}
+  .queue-card textarea.edited{border-color:var(--accent);background:#fbfdff;}
+  .queue-summary{margin:0 auto 14px;max-width:920px;padding:12px 16px;border-radius:10px;
+    background:#fff;border:1px solid var(--border);font-size:13px;}
+  .queue-summary .qs-line{margin:3px 0;}
+  .queue-summary .qs-err{color:var(--red);}
 </style>
 </head>
 <body>
@@ -146,14 +184,18 @@
     <button data-tenant="bbp">BBP</button>
     <button data-tenant="misu">Misü</button>
   </div>
-  <div class="search">
+  <div class="view-switch" id="viewSwitch">
+    <button data-view="inbox" class="active">Boîte</button>
+    <button data-view="queue">File de validation</button>
+  </div>
+  <div class="search" id="searchWrap">
     <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
   </div>
   <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
   <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
 </header>
 
-<div class="layout">
+<div class="layout" id="inboxView">
   <div class="col col-nav" id="navCol">
     <h2>Statut</h2>
     <div id="statusNav"></div>
@@ -168,6 +210,21 @@
   <div class="col detail" id="detailCol">
     <div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>
   </div>
+</div>
+
+<div class="queue-view" id="queueView" style="display:none;">
+  <div class="queue-toolbar">
+    <div class="queue-tabs" id="queueTabs">
+      <button data-group="messagerie">Messagerie <span class="count" id="qCountMessagerie"></span></button>
+      <button data-group="influence">Influence <span class="count" id="qCountInfluence"></span></button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="hint" id="queueSelectedHint" style="font-size:12.5px;color:var(--muted);"></span>
+      <button class="btn btn-primary" id="queueProcessBtn" disabled>Traiter la sélection</button>
+    </div>
+  </div>
+  <div id="queueSummary"></div>
+  <div class="queue-list" id="queueList"><div class="empty">Chargement…</div></div>
 </div>
 
 <div class="modal-backdrop" id="newTicketModal">
@@ -229,6 +286,7 @@
 <script>
 const state = {
   tenant: localStorage.getItem('msav_tenant') || 'bbp',
+  view: 'inbox', // 'inbox' | 'queue'
   category: '',
   status: '',
   q: '',
@@ -238,6 +296,12 @@ const state = {
   linkedProfile: null,
   categories: [], // [{id,label,sort_order,is_default}]
   statuses: [],
+  queue: {
+    items: [],
+    group: 'messagerie', // 'messagerie' | 'influence'
+    selected: new Set(), // message_id
+    edited: new Map(),   // message_id -> texte modifié
+  },
 };
 
 // ---------- API ----------
@@ -640,10 +704,16 @@ async function validateMessage(messageId) {
 }
 
 async function sendMessage(messageId) {
+  // Le back-end exige un approbateur explicite (approved_by) en plus de la
+  // clé d'idempotence — corrigé ici : cet appel échouait systématiquement en
+  // 400 (approved_by manquant) avant ce correctif, masqué jusqu'ici par le
+  // fait que l'Instagram n'était de toute façon pas encore configuré.
+  const approvedBy = window.prompt('Envoyer ce message en tant que :', 'Luc');
+  if (!approvedBy) return;
   try {
     await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/send', {
       method: 'POST',
-      body: { idempotency_key: crypto.randomUUID() },
+      body: { idempotency_key: crypto.randomUUID(), approved_by: approvedBy },
     });
     await refreshSelectedTicket();
     toast('Message envoyé.');
@@ -822,6 +892,188 @@ function closeSettingsModal() {
   document.getElementById('settingsModal').classList.remove('open');
 }
 
+// ---------- File de validation (traitement en lot) ----------
+function resetQueueSelection() {
+  state.queue.selected = new Set();
+  state.queue.edited = new Map();
+}
+
+async function loadQueue() {
+  const listEl = document.getElementById('queueList');
+  listEl.innerHTML = '<div class="empty">Chargement…</div>';
+  document.getElementById('queueSummary').innerHTML = '';
+  try {
+    const data = await api('/api/tickets/queue');
+    state.queue.items = data.items || [];
+    renderQueue();
+  } catch (err) {
+    listEl.innerHTML = '<div class="empty">Erreur de chargement : ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function alertLabel(code) {
+  if (code === 'hors_fenetre_24h') return { text: 'Hors fenêtre 24h — sera exclu du lot', bad: true };
+  if (code === 'canal_non_implemente') return { text: 'Canal pas encore branché — non envoyable ici', bad: true };
+  return { text: code, bad: false };
+}
+
+function renderQueueTabs() {
+  const items = state.queue.items;
+  const nMessagerie = items.filter((i) => i.group === 'messagerie').length;
+  const nInfluence = items.filter((i) => i.group === 'influence').length;
+  document.getElementById('qCountMessagerie').textContent = '(' + nMessagerie + ')';
+  document.getElementById('qCountInfluence').textContent = '(' + nInfluence + ')';
+  document.querySelectorAll('#queueTabs button').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.group === state.queue.group);
+  });
+}
+
+function renderQueue() {
+  renderQueueTabs();
+  const listEl = document.getElementById('queueList');
+  const items = state.queue.items.filter((i) => i.group === state.queue.group);
+
+  if (items.length === 0) {
+    listEl.innerHTML = '<div class="empty">Aucun brouillon en attente dans cet onglet.</div>';
+  } else {
+    listEl.innerHTML = '';
+    items.forEach((it) => {
+      const name = it.contact_name || it.contact_handle || it.contact_email || '(sans nom)';
+      const currentText = state.queue.edited.has(it.message_id) ? state.queue.edited.get(it.message_id) : it.message_body;
+      const isEdited = state.queue.edited.has(it.message_id);
+      const checked = state.queue.selected.has(it.message_id);
+
+      const card = document.createElement('div');
+      card.className = 'queue-card' + (it.sendable ? '' : ' unsendable');
+      card.innerHTML = `
+        <div class="qc-check">
+          <input type="checkbox" data-id="${it.message_id}" ${checked ? 'checked' : ''} ${it.channel !== 'instagram' ? 'disabled' : ''} />
+        </div>
+        <div class="qc-body">
+          <div class="qc-top">
+            <div class="qc-name">${escapeHtml(name)}</div>
+            <div class="qc-badges">
+              <span class="badge badge-channel">${escapeHtml(it.channel)}</span>
+              <span class="badge badge-cat">${escapeHtml(it.category)}</span>
+              ${it.category === 'Influence' && it.score_total != null ? `<span class="badge badge-score">score ${escapeHtml(it.score_total)}/100${it.relationship_status ? ' · ' + escapeHtml(it.relationship_status) : ''}</span>` : ''}
+              ${it.related_order_number ? `<span class="badge badge-status">cmd ${escapeHtml(it.related_order_number)}</span>` : ''}
+            </div>
+          </div>
+          ${it.last_inbound_body ? `<div class="qc-context">Dernier message reçu : "${escapeHtml(it.last_inbound_body)}"</div>` : ''}
+          <textarea data-id="${it.message_id}" class="${isEdited ? 'edited' : ''}">${escapeHtml(currentText)}</textarea>
+          <div class="qc-alerts">
+            ${it.alerts.map((a) => { const al = alertLabel(a); return `<span class="badge badge-alert${al.bad ? ' bad' : ''}">${escapeHtml(al.text)}</span>`; }).join('')}
+          </div>
+        </div>
+      `;
+      card.querySelector('input[type="checkbox"]').onchange = (e) => {
+        if (e.target.checked) state.queue.selected.add(it.message_id);
+        else state.queue.selected.delete(it.message_id);
+        updateQueueToolbar();
+      };
+      card.querySelector('textarea').oninput = (e) => {
+        if (e.target.value === it.message_body) state.queue.edited.delete(it.message_id);
+        else state.queue.edited.set(it.message_id, e.target.value);
+        e.target.classList.toggle('edited', state.queue.edited.has(it.message_id));
+      };
+      listEl.appendChild(card);
+    });
+  }
+  updateQueueToolbar();
+}
+
+function updateQueueToolbar() {
+  const n = state.queue.selected.size;
+  document.getElementById('queueProcessBtn').disabled = n === 0;
+  document.getElementById('queueSelectedHint').textContent = n > 0 ? `${n} sélectionné${n > 1 ? 's' : ''}` : '';
+}
+
+async function processQueueSelection() {
+  const n = state.queue.selected.size;
+  if (n === 0) return;
+  const approvedBy = window.prompt(`Valider et envoyer ces ${n} message(s) en tant que :`, 'Luc');
+  if (!approvedBy) return;
+
+  const byId = new Map(state.queue.items.map((it) => [it.message_id, it]));
+  const items = Array.from(state.queue.selected).map((messageId) => {
+    const it = byId.get(messageId);
+    const body = state.queue.edited.has(messageId) ? state.queue.edited.get(messageId) : undefined;
+    return {
+      message_id: messageId,
+      ticket_id: it.ticket_id,
+      body,
+      idempotency_key: crypto.randomUUID(),
+    };
+  });
+
+  const btn = document.getElementById('queueProcessBtn');
+  btn.disabled = true;
+  btn.textContent = 'Traitement en cours…';
+  try {
+    const data = await api('/api/tickets/batch-process', {
+      method: 'POST',
+      body: { items, approved_by: approvedBy },
+    });
+    renderQueueSummary(data.summary, byId);
+    resetQueueSelection();
+    await loadQueue();
+    toast(`Lot traité : ${data.summary.sent} envoyé(s), ${data.summary.errors.length} erreur(s), ${data.summary.excluded.length} exclu(s).`, data.summary.errors.length > 0);
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  } finally {
+    btn.textContent = 'Traiter la sélection';
+  }
+}
+
+function excludedReasonLabel(reason) {
+  if (reason === 'outside_24h_response_window') return 'hors fenêtre de réponse 24h';
+  if (reason && reason.startsWith('channel_not_implemented')) return 'canal pas encore branché';
+  return reason;
+}
+
+function renderQueueSummary(summary, byId) {
+  const el = document.getElementById('queueSummary');
+  if (!summary) { el.innerHTML = ''; return; }
+  const lines = [`<div class="qs-line"><strong>${summary.sent}</strong> envoyé${summary.sent > 1 ? 's' : ''}</div>`];
+  if (summary.excluded.length > 0) {
+    lines.push(`<div class="qs-line">${summary.excluded.length} exclu(s) automatiquement : ` +
+      summary.excluded.map((e) => {
+        const it = byId.get(e.message_id);
+        const name = it ? (it.contact_name || it.contact_handle || it.contact_email || 'sans nom') : e.ticket_id;
+        return `${escapeHtml(name)} (${escapeHtml(excludedReasonLabel(e.reason))})`;
+      }).join(', ') + '</div>');
+  }
+  if (summary.errors.length > 0) {
+    lines.push(`<div class="qs-line qs-err">${summary.errors.length} en erreur — à retraiter individuellement : ` +
+      summary.errors.map((e) => {
+        const it = byId.get(e.message_id);
+        const name = it ? (it.contact_name || it.contact_handle || it.contact_email || 'sans nom') : e.ticket_id;
+        return `${escapeHtml(name)} (${escapeHtml(e.reason)})`;
+      }).join(', ') + '</div>');
+  }
+  el.innerHTML = `<div class="queue-summary">${lines.join('')}</div>`;
+}
+
+function initQueueTabs() {
+  document.querySelectorAll('#queueTabs button').forEach((btn) => {
+    btn.onclick = () => { state.queue.group = btn.dataset.group; renderQueue(); };
+  });
+  document.getElementById('queueProcessBtn').onclick = processQueueSelection;
+}
+
+// ---------- Bascule Boîte / File de validation ----------
+function setView(view) {
+  state.view = view;
+  document.getElementById('inboxView').style.display = view === 'inbox' ? 'grid' : 'none';
+  document.getElementById('queueView').style.display = view === 'queue' ? 'block' : 'none';
+  document.getElementById('searchWrap').style.display = view === 'inbox' ? 'block' : 'none';
+  document.querySelectorAll('#viewSwitch button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  if (view === 'queue') {
+    resetQueueSelection();
+    loadQueue();
+  }
+}
+
 // ---------- Init ----------
 function initTenantSwitch() {
   const buttons = document.querySelectorAll('#tenantSwitch button');
@@ -834,11 +1086,18 @@ function initTenantSwitch() {
       state.selectedTicket = null;
       state.category = '';
       state.status = '';
+      resetQueueSelection();
       document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
       await loadTaxonomy();
       renderNav();
-      await loadTickets();
+      if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); }
     };
+  });
+}
+
+function initViewSwitch() {
+  document.querySelectorAll('#viewSwitch button').forEach((btn) => {
+    btn.onclick = () => setView(btn.dataset.view);
   });
 }
 
@@ -861,6 +1120,8 @@ document.getElementById('newCategoryInput').addEventListener('keydown', (e) => {
 
 async function init() {
   initTenantSwitch();
+  initViewSwitch();
+  initQueueTabs();
   await loadTaxonomy();
   renderNav();
   await loadTickets();
