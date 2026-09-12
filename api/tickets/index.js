@@ -4,9 +4,6 @@ const { withTenantHandler, sendJson } = require('../../lib/handler');
 const { withTenant } = require('../../lib/db');
 const { logAudit } = require('../../lib/audit');
 
-const VALID_STATUSES = ['a_traiter', 'en_attente_client', 'en_attente_interne', 'a_valider', 'resolu', 'erreur'];
-const VALID_CATEGORIES = ['Influence', 'SAV', 'Partenariat', 'Presse', 'B2B', 'Commande', 'Livraison', 'Retour', 'Paiement', 'Autre'];
-
 module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method === 'GET') {
     const { status, channel, category, q } = req.query || {};
@@ -46,10 +43,21 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       sendJson(res, 400, { error: 'channel_required' });
       return;
     }
-    const category = VALID_CATEGORIES.includes(body.category) ? body.category : 'Autre';
-    const status = VALID_STATUSES.includes(body.status) ? body.status : 'a_traiter';
 
     const ticket = await withTenant(tenant.id, async (client) => {
+      const { rows: catRows } = await client.query(
+        "SELECT label, is_default FROM ticket_field_options WHERE field = 'category' ORDER BY sort_order"
+      );
+      const { rows: statusRows } = await client.query(
+        "SELECT label, is_default FROM ticket_field_options WHERE field = 'status' ORDER BY sort_order"
+      );
+      const catLabels = catRows.map((r) => r.label);
+      const statusLabels = statusRows.map((r) => r.label);
+      const defaultCategory = (catRows.find((r) => r.is_default) || {}).label || catLabels[0] || 'Autre';
+      const defaultStatus = (statusRows.find((r) => r.is_default) || {}).label || statusLabels[0] || 'À traiter';
+      const category = catLabels.includes(body.category) ? body.category : defaultCategory;
+      const status = statusLabels.includes(body.status) ? body.status : defaultStatus;
+
       const { rows } = await client.query(
         `INSERT INTO tickets
            (tenant_id, channel, category, status, contact_name, contact_handle, contact_email,
