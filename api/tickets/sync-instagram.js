@@ -44,6 +44,28 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     return;
   }
 
+  // L'id stocké (ig_business_account_id, obtenu via /me au moment de la
+  // connexion, schéma "IG Login") ne correspond PAS à l'id que l'API
+  // Conversations utilise pour désigner ce même compte dans
+  // participants[].id (schéma différent — confirmé par diagnostic le
+  // 12/09/2026, voir TRANSMISSION-Messagerie-Influence-SAV.md : cause du bug
+  // de fusion de tous les contacts sous un seul ticket "bonsbaisers.paris").
+  // On récupère donc le username du compte pro en direct, stable entre les
+  // deux API, et on identifie le contact et le sens des messages par
+  // comparaison de username plutôt que d'id.
+  let businessUsername;
+  try {
+    const profile = await instagramRead.getBusinessProfile({ accessToken });
+    businessUsername = profile && profile.username;
+  } catch (err) {
+    sendJson(res, 502, { error: 'instagram_api_error', detail: err.message });
+    return;
+  }
+  if (!businessUsername) {
+    sendJson(res, 502, { error: 'instagram_business_username_unavailable' });
+    return;
+  }
+
   let conversations;
   try {
     conversations = await instagramRead.listConversations({ accessToken, igBusinessAccountId });
@@ -62,8 +84,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
   for (const conversation of conversations) {
     try {
       const participants = (conversation.participants && conversation.participants.data) || [];
-      const contactParticipant = participants.find((p) => p.id !== igBusinessAccountId);
+      const contactParticipant = participants.find((p) => p.username !== businessUsername);
+      const businessParticipant = participants.find((p) => p.username === businessUsername);
       if (!contactParticipant) continue; // pas d'interlocuteur identifiable, on ignore
+      // Id du compte de la marque tel qu'utilisé DANS CETTE conversation
+      // précise (schéma API Conversations, différent de igBusinessAccountId)
+      // — sert à déterminer le sens (inbound/outbound) des messages plus bas.
+      const businessParticipantId = businessParticipant ? businessParticipant.id : null;
 
       const messages = await instagramRead.getConversationMessages({
         accessToken,
@@ -121,7 +148,11 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           );
           if (existingMsgRows.length > 0) continue; // déjà importé, sondage idempotent
 
-          const isFromBusiness = message.from && message.from.id === igBusinessAccountId;
+          const isFromBusiness = !!(
+            message.from &&
+            businessParticipantId &&
+            message.from.id === businessParticipantId
+          );
           const direction = isFromBusiness ? 'outbound' : 'inbound';
           // Exception assumée au workflow draft -> validated -> sent : un
           // message sortant vu ici a déjà été envoyé ailleurs (ex. réponse
