@@ -30,6 +30,7 @@
   .btn-primary:hover{background:#1d4ed8;}
   .btn-primary:disabled{background:#93b4f5;border-color:#93b4f5;cursor:not-allowed;}
   .btn-danger{color:var(--red);}
+  .btn.active{background:var(--text);color:#fff;}
   .view-switch{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
   .view-switch button{border:none;background:transparent;padding:5px 12px;border-radius:5px;
     cursor:pointer;font-size:13px;color:var(--muted);}
@@ -191,6 +192,7 @@
   <div class="search" id="searchWrap">
     <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
   </div>
+  <button class="btn" id="archivedToggleBtn">📦 Archivés</button>
   <button class="btn" id="syncInstagramBtn">🔄 Actualiser Instagram</button>
   <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
   <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
@@ -291,6 +293,7 @@ const state = {
   category: '',
   status: '',
   q: '',
+  showArchived: false,
   tickets: [],
   selectedTicket: null,
   messages: [],
@@ -414,8 +417,12 @@ async function loadTickets() {
     if (state.category) params.set('category', state.category);
     if (state.status) params.set('status', state.status);
     if (state.q) params.set('q', state.q);
+    // Les archivés sont exclus par défaut côté API ; en mode "Archivés" on
+    // les redemande explicitement puis on affiche uniquement ceux-là.
+    if (state.showArchived) params.set('include_archived', '1');
     const data = await api('/api/tickets?' + params.toString());
-    state.tickets = data.tickets || [];
+    const tickets = data.tickets || [];
+    state.tickets = state.showArchived ? tickets.filter((t) => t.archived_at) : tickets;
     renderTicketList();
   } catch (err) {
     listEl.innerHTML = '<div class="empty">Erreur de chargement : ' + escapeHtml(err.message) + '</div>';
@@ -425,7 +432,7 @@ async function loadTickets() {
 function renderTicketList() {
   const listEl = document.getElementById('ticketList');
   if (state.tickets.length === 0) {
-    listEl.innerHTML = '<div class="empty">Aucun ticket ici.</div>';
+    listEl.innerHTML = '<div class="empty">' + (state.showArchived ? 'Aucun ticket archivé.' : 'Aucun ticket ici.') + '</div>';
     return;
   }
   listEl.innerHTML = '';
@@ -442,6 +449,7 @@ function renderTicketList() {
         <span class="badge badge-channel">${escapeHtml(t.channel)}</span>
         <span class="badge badge-cat">${escapeHtml(t.category)}</span>
         <span class="badge badge-status" style="background:${statusBg(t.status)};color:${statusFg(t.status)};">${escapeHtml(t.status)}</span>
+        ${t.archived_at ? '<span class="badge badge-alert">📦 archivé</span>' : ''}
       </div>
       ${t.summary ? `<div class="summary">${escapeHtml(t.summary)}</div>` : ''}
     `;
@@ -509,9 +517,13 @@ async function renderDetail() {
             ${t.contact_handle ? '@' + escapeHtml(t.contact_handle) + ' · ' : ''}
             ${t.contact_email ? escapeHtml(t.contact_email) + ' · ' : ''}
             canal ${escapeHtml(t.channel)}
+            ${t.archived_at ? ' · <span class="badge badge-alert">📦 archivé</span>' : ''}
           </div>
         </div>
-        <button class="btn btn-danger" id="deleteBtnPlaceholder" style="visibility:hidden;">.</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn" id="archiveBtn">${t.archived_at ? '♻️ Désarchiver' : '📦 Archiver'}</button>
+          <button class="btn btn-danger" id="deleteTicketBtn">🗑 Supprimer</button>
+        </div>
       </div>
       <div class="field-row">
         <div><label>Statut</label><select id="statusSelect">${statusOptions}</select></div>
@@ -543,6 +555,8 @@ async function renderDetail() {
   document.getElementById('orderInput').onblur = (e) => patchTicket({ related_order_number: e.target.value });
   document.getElementById('assignedInput').onblur = (e) => patchTicket({ assigned_to: e.target.value });
   document.getElementById('draftBtn').onclick = createDraft;
+  document.getElementById('archiveBtn').onclick = toggleArchiveTicket;
+  document.getElementById('deleteTicketBtn').onclick = deleteTicketConfirm;
   document.getElementById('createProfileLink').onclick = (e) => { e.preventDefault(); openCreateProfileModal(); };
   document.getElementById('profileSearchInput').oninput = debounce((e) => searchProfilesForTicket(e.target.value), 300);
 
@@ -629,6 +643,47 @@ async function patchTicket(fields) {
     }
     renderTicketList();
     toast('Ticket mis à jour.');
+    return data;
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+    throw err;
+  }
+}
+
+// ---------- Archivage / suppression d'un ticket ----------
+async function toggleArchiveTicket() {
+  const t = state.selectedTicket;
+  if (!t) return;
+  const archiving = !t.archived_at;
+  try {
+    await patchTicket({ archived: archiving });
+    await loadTickets();
+    // Une fois archivé (ou désarchivé hors du mode "Archivés"), le ticket
+    // sort de la vue courante — on referme le détail plutôt que de laisser
+    // un panneau ouvert sur un ticket qui n'est plus dans la liste.
+    if (archiving || state.showArchived) {
+      state.selectedTicket = null;
+      document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+    }
+  } catch (err) {
+    // déjà notifié par patchTicket
+  }
+}
+
+async function deleteTicketConfirm() {
+  const t = state.selectedTicket;
+  if (!t) return;
+  const name = t.contact_name || t.contact_handle || t.contact_email || 'ce ticket';
+  const typed = window.prompt(
+    `Suppression définitive et IRRÉVERSIBLE de « ${name} » (le ticket et tous ses messages seront effacés).\nTape SUPPRIMER pour confirmer :`
+  );
+  if (typed !== 'SUPPRIMER') return;
+  try {
+    await api('/api/tickets/' + t.id, { method: 'DELETE' });
+    state.selectedTicket = null;
+    document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+    await loadTickets();
+    toast('Ticket supprimé définitivement.');
   } catch (err) {
     toast('Erreur : ' + err.message, true);
   }
@@ -1101,6 +1156,17 @@ function setView(view) {
     loadQueue();
   }
 }
+
+// ---------- Bascule Boîte / Archivés ----------
+function toggleArchivedView() {
+  state.showArchived = !state.showArchived;
+  document.getElementById('archivedToggleBtn').classList.toggle('active', state.showArchived);
+  document.getElementById('archivedToggleBtn').textContent = state.showArchived ? '📥 Boîte' : '📦 Archivés';
+  state.selectedTicket = null;
+  document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+  loadTickets();
+}
+document.getElementById('archivedToggleBtn').onclick = toggleArchivedView;
 
 // ---------- Init ----------
 function initTenantSwitch() {
