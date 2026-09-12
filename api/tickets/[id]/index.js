@@ -1,15 +1,8 @@
-// GET   /api/tickets/:id            détail d'un ticket
-// PATCH /api/tickets/:id            met à jour un ticket : statut, catégorie,
-//                                     assignation, résumé, lien vers un profil
-//                                     influence (tenant_influence_relations),
-//                                     ou les infos de contact/commande liée.
-// Ne touche jamais aux messages (voir messages.js) ni au workflow d'envoi.
+// GET   /api/tickets/:id
+// PATCH /api/tickets/:id
 const { withTenantHandler, sendJson } = require('../../../lib/handler');
 const { withTenant } = require('../../../lib/db');
 const { logAudit } = require('../../../lib/audit');
-
-const VALID_STATUSES = ['a_traiter', 'en_attente_client', 'en_attente_interne', 'a_valider', 'resolu', 'erreur'];
-const VALID_CATEGORIES = ['Influence', 'SAV', 'Partenariat', 'Presse', 'B2B', 'Commande', 'Livraison', 'Retour', 'Paiement', 'Autre'];
 
 const PATCHABLE_FIELDS = [
   'category',
@@ -42,30 +35,45 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method === 'PATCH') {
     const body = req.body || {};
 
-    if (body.category !== undefined && !VALID_CATEGORIES.includes(body.category)) {
-      sendJson(res, 400, { error: 'invalid_category' });
-      return;
-    }
-    if (body.status !== undefined && !VALID_STATUSES.includes(body.status)) {
-      sendJson(res, 400, { error: 'invalid_status' });
-      return;
-    }
-
-    const updates = [];
-    const params = [];
-    for (const field of PATCHABLE_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(body, field)) {
-        params.push(body[field] === '' ? null : body[field]);
-        updates.push(`${field} = $${params.length}`);
-      }
-    }
-    if (updates.length === 0) {
-      sendJson(res, 400, { error: 'no_fields_to_update' });
-      return;
-    }
-
     try {
       const ticket = await withTenant(tenant.id, async (client) => {
+        if (body.category !== undefined) {
+          const { rows } = await client.query(
+            "SELECT 1 FROM ticket_field_options WHERE field = 'category' AND label = $1",
+            [body.category]
+          );
+          if (rows.length === 0) {
+            const err = new Error('invalid_category');
+            err.httpStatus = 400;
+            throw err;
+          }
+        }
+        if (body.status !== undefined) {
+          const { rows } = await client.query(
+            "SELECT 1 FROM ticket_field_options WHERE field = 'status' AND label = $1",
+            [body.status]
+          );
+          if (rows.length === 0) {
+            const err = new Error('invalid_status');
+            err.httpStatus = 400;
+            throw err;
+          }
+        }
+
+        const updates = [];
+        const params = [];
+        for (const field of PATCHABLE_FIELDS) {
+          if (Object.prototype.hasOwnProperty.call(body, field)) {
+            params.push(body[field] === '' ? null : body[field]);
+            updates.push(`${field} = $${params.length}`);
+          }
+        }
+        if (updates.length === 0) {
+          const err = new Error('no_fields_to_update');
+          err.httpStatus = 400;
+          throw err;
+        }
+
         params.push(ticketId);
         const { rows } = await client.query(
           `UPDATE tickets SET ${updates.join(', ')}, updated_at = now() WHERE id = $${params.length} RETURNING *`,
@@ -92,8 +100,6 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         sendJson(res, err.httpStatus, { error: err.message });
         return;
       }
-      // Violation de clé étrangère : ex. influence_relation_id qui ne
-      // correspond à aucune ligne tenant_influence_relations existante.
       if (err.code === '23503') {
         sendJson(res, 400, { error: 'invalid_reference', detail: err.detail });
         return;
