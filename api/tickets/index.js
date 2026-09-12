@@ -6,10 +6,15 @@ const { logAudit } = require('../../lib/audit');
 
 module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method === 'GET') {
-    const { status, channel, category, q } = req.query || {};
+    const { status, channel, category, q, include_archived } = req.query || {};
     const result = await withTenant(tenant.id, async (client) => {
-      const conditions = [];
-      const params = [];
+      // tenant_id filtré explicitement ici : RLS ne protège pas cette requête
+      // (rôle applicatif neondb_owner en BYPASSRLS, voir
+      // TRANSMISSION-Messagerie-Influence-SAV.md, incident du 12/09/2026) —
+      // sans ce filtre, cette route renvoyait les tickets de TOUTES les
+      // marques mélangés, quelle que soit la marque demandée.
+      const params = [tenant.id];
+      const conditions = ['tenant_id = $1'];
       if (status) {
         params.push(status);
         conditions.push(`status = $${params.length}`);
@@ -26,7 +31,12 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         params.push(`%${q}%`);
         conditions.push(`(contact_name ILIKE $${params.length} OR contact_handle ILIKE $${params.length} OR contact_email ILIKE $${params.length} OR related_order_number ILIKE $${params.length})`);
       }
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      // Les tickets archivés sont exclus par défaut de la boîte ; les
+      // afficher explicitement nécessite ?include_archived=1.
+      if (!include_archived) {
+        conditions.push('archived_at IS NULL');
+      }
+      const where = `WHERE ${conditions.join(' AND ')}`;
       const { rows } = await client.query(
         `SELECT * FROM tickets ${where} ORDER BY updated_at DESC LIMIT 200`,
         params
