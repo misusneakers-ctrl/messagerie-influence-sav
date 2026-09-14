@@ -160,9 +160,14 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           // l'historique du fil, jamais comme un nouveau brouillon à valider.
           const status = isFromBusiness ? 'sent' : 'received';
 
+          // Correctif 2026-09-14 : colonne attachments alimentée — jusqu'ici
+          // l'INSERT ne posait jamais cette colonne (elle retombait donc sur
+          // son défaut '[]'::jsonb), y compris pour un message contenant
+          // réellement une image ou une vidéo, faute pour instagram-read.js
+          // de demander ce champ à l'API (voir correctif dans ce fichier-là).
           await client.query(
-            `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, status, body, external_message_id, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, status, body, external_message_id, created_at, attachments)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
             [
               tenant.id,
               ticket.id,
@@ -171,6 +176,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
               message.message || '',
               message.id,
               message.created_time || new Date().toISOString(),
+              JSON.stringify(message.attachments || []),
             ]
           );
           summary.messages_created += 1;
