@@ -92,10 +92,18 @@
     border-radius:6px;font-size:12.5px;}
   .influence-result:hover{background:#fff;}
 
-  .thread{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:10px;}
-  .msg{max-width:70%;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.45;white-space:pre-wrap;}
+  .thread{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:2px;}
+  .msg{max-width:70%;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.45;white-space:pre-wrap;margin-bottom:10px;}
   .msg.inbound{align-self:flex-start;background:#f1f2f4;border-bottom-left-radius:2px;}
   .msg.outbound{align-self:flex-end;background:var(--accent-bg);border-bottom-right-radius:2px;}
+  /* Regroupement "façon messagerie" : des messages consécutifs du même sens
+     se collent (petit espace, angle de raccord aplati) plutôt que d'afficher
+     une bulle isolée à chaque message — voir renderThread(). */
+  .msg.grouped-bottom{margin-bottom:2px;}
+  .msg.inbound.grouped-top{border-top-left-radius:4px;}
+  .msg.inbound.grouped-bottom{border-bottom-left-radius:4px;}
+  .msg.outbound.grouped-top{border-top-right-radius:4px;}
+  .msg.outbound.grouped-bottom{border-bottom-right-radius:4px;}
   .msg .meta{display:flex;gap:6px;align-items:center;margin-top:6px;font-size:10.5px;color:var(--muted);}
   .msg .status-pill{padding:1px 6px;border-radius:99px;font-weight:600;}
   .status-pill[data-s="draft"]{background:#fef3c7;color:#92400e;}
@@ -113,8 +121,9 @@
   .composer{border-top:1px solid var(--border);padding:12px 18px;background:var(--panel);}
   .composer textarea{width:100%;min-height:60px;padding:9px 10px;border:1px solid var(--border);
     border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;}
-  .composer .row{display:flex;justify-content:space-between;margin-top:8px;align-items:center;}
-  .composer .hint{font-size:11.5px;color:var(--muted);}
+  .composer .row{display:flex;justify-content:space-between;margin-top:8px;align-items:center;flex-wrap:wrap;gap:8px;}
+  .composer .hint{font-size:11.5px;color:var(--muted);flex:1;min-width:200px;}
+  .composer .row .composer-actions{display:flex;gap:8px;flex-wrap:wrap;}
 
   .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;
     align-items:center;justify-content:center;z-index:50;}
@@ -546,10 +555,13 @@ async function renderDetail() {
     </div>
     <div class="thread" id="thread"></div>
     <div class="composer">
-      <textarea id="composerInput" placeholder="Écrire une réponse (brouillon)…"></textarea>
+      <textarea id="composerInput" placeholder="Écrire une réponse…"></textarea>
       <div class="row">
-        <div class="hint">Un brouillon doit être validé avant envoi. L'envoi nécessite les identifiants du canal (Instagram) configurés pour cette marque.</div>
-        <button class="btn btn-primary" id="draftBtn">Enregistrer le brouillon</button>
+        <div class="hint">« Enregistrer le brouillon » passe par la file de validation. « Envoyer directement » valide et envoie en un geste — utile pour une réponse déjà écrite à la main ; si l'envoi échoue (hors fenêtre 24h, canal non configuré…), le message reste enregistré comme brouillon, à valider depuis la file de validation.</div>
+        <div class="composer-actions">
+          <button class="btn" id="draftBtn">Enregistrer le brouillon</button>
+          <button class="btn btn-primary" id="sendDirectBtn">Envoyer directement</button>
+        </div>
       </div>
     </div>
   `;
@@ -559,6 +571,7 @@ async function renderDetail() {
   document.getElementById('orderInput').onblur = (e) => patchTicket({ related_order_number: e.target.value });
   document.getElementById('assignedInput').onblur = (e) => patchTicket({ assigned_to: e.target.value });
   document.getElementById('draftBtn').onclick = createDraft;
+  document.getElementById('sendDirectBtn').onclick = sendDirectly;
   document.getElementById('archiveBtn').onclick = toggleArchiveTicket;
   document.getElementById('deleteTicketBtn').onclick = deleteTicketConfirm;
   document.getElementById('createProfileLink').onclick = (e) => { e.preventDefault(); openCreateProfileModal(); };
@@ -694,6 +707,16 @@ async function deleteTicketConfirm() {
 }
 
 // ---------- Fil de messages ----------
+// Correctif 2026-09-14 (mise en forme "messagerie normale") : les messages
+// consécutifs d'un même sens (inbound/outbound) sont regroupés visuellement
+// — bulles collées, angle de raccord aplati (voir CSS .grouped-top/-bottom)
+// — et le bandeau meta (statut + heure) n'est affiché que sur le dernier
+// message d'un groupe, sauf s'il porte une erreur ou nécessite une action
+// (brouillon à valider, message validé à envoyer, envoi en échec) : ces
+// cas-là restent toujours visibles, même au milieu d'un groupe. Un message
+// "reçu" (inbound) n'affiche plus de pastille de statut — l'information
+// n'apporte rien face à un simple message reçu, contrairement à un sortant
+// (draft/validated/sent/rejected) qui reste informatif.
 function renderThread() {
   const threadEl = document.getElementById('thread');
   if (state.messages.length === 0) {
@@ -701,35 +724,53 @@ function renderThread() {
     return;
   }
   threadEl.innerHTML = '';
-  state.messages.forEach((m) => {
+  const msgs = state.messages;
+  msgs.forEach((m, idx) => {
+    const prev = msgs[idx - 1];
+    const next = msgs[idx + 1];
+    const groupedTop = !!(prev && prev.direction === m.direction);
+    const groupedBottom = !!(next && next.direction === m.direction);
+
     const div = document.createElement('div');
-    div.className = 'msg ' + m.direction;
+    div.className = 'msg ' + m.direction
+      + (groupedTop ? ' grouped-top' : '')
+      + (groupedBottom ? ' grouped-bottom' : '');
+
     let actions = '';
+    const needsAction = m.direction === 'outbound' && (m.status === 'draft' || m.status === 'validated');
     if (m.direction === 'outbound' && m.status === 'draft') {
       actions = `<div class="actions"><button class="btn" data-action="validate" data-id="${m.id}">Valider</button></div>`;
     } else if (m.direction === 'outbound' && m.status === 'validated') {
       actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button></div>`;
     }
-    // Correctif 2026-09-14 : rendu des pièces jointes (images/vidéos/fichiers)
-    // — jusqu'ici m.attachments n'était jamais affiché, alors même que l'API
-    // le renvoie déjà (SELECT * côté /api/tickets/:id/messages). Le corps
-    // n'est affiché que s'il est non vide : un message Instagram composé
-    // uniquement d'une image arrive avec body = '' et ne doit pas laisser de
-    // bulle vide au-dessus de la pièce jointe.
+
+    // Pièces jointes (images/vidéos/fichiers) — le corps n'est affiché que
+    // s'il est non vide : un message Instagram composé uniquement d'une
+    // image arrive avec body = '' et ne doit pas laisser de bulle vide
+    // au-dessus de la pièce jointe.
     const attachments = Array.isArray(m.attachments) ? m.attachments : [];
     const attachmentsHtml = attachments.length === 0 ? '' : `<div class="attachments">${attachments.map((a) => {
       if (a.type === 'image') return `<img src="${escapeHtml(a.url)}" alt="pièce jointe" onclick="window.open('${escapeHtml(a.url)}','_blank')" />`;
       if (a.type === 'video') return `<video controls src="${escapeHtml(a.url)}"></video>`;
       return `<a class="file-attachment" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">📎 Pièce jointe</a>`;
     }).join('')}</div>`;
-    div.innerHTML = `
-      ${m.body ? `<div>${escapeHtml(m.body)}</div>` : ''}
-      ${attachmentsHtml}
+
+    const showMeta = !groupedBottom || !!m.error || needsAction;
+    const statusPillHtml = m.direction === 'outbound'
+      ? `<span class="status-pill" data-s="${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>`
+      : '';
+    const metaHtml = showMeta ? `
       <div class="meta">
-        <span class="status-pill" data-s="${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>
+        ${statusPillHtml}
         <span>${fmtDate(m.created_at)}</span>
         ${m.error ? '<span style="color:var(--red);">· ' + escapeHtml(m.error) + '</span>' : ''}
       </div>
+    ` : '';
+
+    div.innerHTML = `
+      ${m.body ? `<div>${escapeHtml(m.body)}</div>` : ''}
+      ${attachmentsHtml}
+      ${metaHtml}
       ${actions}
     `;
     threadEl.appendChild(div);
@@ -758,6 +799,58 @@ async function createDraft() {
     toast('Brouillon enregistré.');
   } catch (err) {
     toast('Erreur : ' + err.message, true);
+  }
+}
+
+// Correctif 2026-09-14 : "Envoyer directement" — pour une réponse déjà
+// écrite à la main, évite l'aller-retour par la file de validation. Enchaîne
+// création du brouillon -> validation -> envoi avec un seul nom demandé. Si
+// l'envoi échoue à une étape (hors fenêtre 24h, canal Instagram pas
+// configuré, erreur Meta…), le brouillon déjà créé reste en place : rien
+// n'est perdu, il suffit de le valider et l'envoyer depuis la file de
+// validation comme n'importe quel autre brouillon.
+async function sendDirectly() {
+  const input = document.getElementById('composerInput');
+  const body = input.value.trim();
+  if (!body) return;
+  const approvedBy = window.prompt('Envoyer ce message directement en tant que :', 'Luc');
+  if (!approvedBy) return;
+
+  const btn = document.getElementById('sendDirectBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Envoi…';
+  let messageId = null;
+  try {
+    const draftData = await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
+      method: 'POST',
+      body: { direction: 'outbound', body },
+    });
+    messageId = draftData.message.id;
+
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/validate', {
+      method: 'PATCH',
+      body: { validated_by: approvedBy },
+    });
+
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/send', {
+      method: 'POST',
+      body: { idempotency_key: crypto.randomUUID(), approved_by: approvedBy },
+    });
+
+    input.value = '';
+    await refreshSelectedTicket();
+    toast('Message envoyé.');
+  } catch (err) {
+    await refreshSelectedTicket();
+    if (messageId) {
+      toast('Message enregistré comme brouillon, mais l\'envoi a échoué : ' + err.message + ' — tu peux le valider et l\'envoyer depuis la file de validation.', true);
+    } else {
+      toast('Erreur : ' + err.message, true);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
   }
 }
 
