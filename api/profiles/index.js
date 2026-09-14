@@ -16,8 +16,12 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method === 'GET') {
     const { q, min_score, tag } = req.query || {};
     const relations = await withTenant(tenant.id, async (client) => {
-      const params = [];
-      const conditions = [];
+      // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté. Sans lui,
+      // cette route renvoyait les relations influence de TOUTES les marques
+      // mélangées (RLS ne protège pas cette requête — voir
+      // TRANSMISSION-Messagerie-Influence-SAV.md, incident du 12/09/2026).
+      const params = [tenant.id];
+      const conditions = ['r.tenant_id = $1'];
       let joinTag = '';
       if (tag) {
         joinTag = 'JOIN relation_tags rt ON rt.relation_id = r.id JOIN tags t ON t.id = rt.tag_id';
@@ -28,7 +32,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         params.push(Number(min_score));
         conditions.push(`r.score_total >= $${params.length}`);
       }
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const where = `WHERE ${conditions.join(' AND ')}`;
       const { rows } = await client.query(
         `SELECT r.* FROM tenant_influence_relations r ${joinTag} ${where} ORDER BY r.updated_at DESC LIMIT 200`,
         params
