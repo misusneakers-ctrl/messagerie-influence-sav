@@ -5,7 +5,7 @@
 // Pose ou remplace une credential chiffrée pour un tenant. Ne jamais coller
 // la valeur en clair ailleurs qu'ici (chat, dépôt, logs) — ce script ne
 // l'affiche jamais après coup.
-const { withoutTenant } = require('../lib/db');
+const { withoutTenant, withTenant } = require('../lib/db');
 const { encrypt } = require('../lib/crypto');
 
 function parseArgs() {
@@ -26,14 +26,25 @@ async function main() {
   const metadata = meta ? JSON.parse(meta) : {};
   const encrypted = encrypt(value);
 
-  await withoutTenant(async (client) => {
+  // Correctif robustesse 2026-09-14 : la résolution du tenant reste en
+  // withoutTenant (table `tenants`, pas de RLS — voir lib/tenant.js), mais
+  // l'écriture dans tenant_credentials (RLS activée) passe maintenant par
+  // withTenant, qui pose app.tenant_id avant la requête. Sans ce changement,
+  // ce script continuera de fonctionner tant que le rôle applicatif est en
+  // BYPASSRLS, mais échouera dès que ce flag sera retiré (l'INSERT sera
+  // rejeté par la policy RLS faute de app.tenant_id posé).
+  const tenantId = await withoutTenant(async (client) => {
     const { rows } = await client.query('SELECT id FROM tenants WHERE slug = $1', [tenant]);
     if (!rows[0]) throw new Error(`Tenant inconnu : ${tenant}`);
+    return rows[0].id;
+  });
+
+  await withTenant(tenantId, async (client) => {
     await client.query(
       `INSERT INTO tenant_credentials (tenant_id, type, encrypted_value, metadata)
        VALUES ($1,$2,$3,$4)
        ON CONFLICT (tenant_id, type) DO UPDATE SET encrypted_value = $3, metadata = $4, updated_at = now()`,
-      [rows[0].id, type, encrypted, JSON.stringify(metadata)]
+      [tenantId, type, encrypted, JSON.stringify(metadata)]
     );
   });
 
