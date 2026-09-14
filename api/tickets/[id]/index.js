@@ -45,9 +45,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     try {
       const ticket = await withTenant(tenant.id, async (client) => {
         if (body.category !== undefined) {
+          // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté. Sans
+          // lui, un ticket pouvait être re-catégorisé avec une valeur qui
+          // n'existe QUE chez l'autre marque (même défaut que celui corrigé
+          // le 12/09 sur api/settings/options/index.js).
           const { rows } = await client.query(
-            "SELECT 1 FROM ticket_field_options WHERE field = 'category' AND label = $1",
-            [body.category]
+            "SELECT 1 FROM ticket_field_options WHERE tenant_id = $1 AND field = 'category' AND label = $2",
+            [tenant.id, body.category]
           );
           if (rows.length === 0) {
             const err = new Error('invalid_category');
@@ -57,8 +61,8 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         }
         if (body.status !== undefined) {
           const { rows } = await client.query(
-            "SELECT 1 FROM ticket_field_options WHERE field = 'status' AND label = $1",
-            [body.status]
+            "SELECT 1 FROM ticket_field_options WHERE tenant_id = $1 AND field = 'status' AND label = $2",
+            [tenant.id, body.status]
           );
           if (rows.length === 0) {
             const err = new Error('invalid_status');
