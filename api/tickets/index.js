@@ -55,11 +55,19 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     }
 
     const ticket = await withTenant(tenant.id, async (client) => {
+      // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté sur ces deux
+      // requêtes. Sans lui, la création d'un ticket pouvait piocher un
+      // statut/catégorie par défaut appartenant à une AUTRE marque (même
+      // défaut que celui corrigé le 12/09 sur api/settings/options/index.js
+      // — RLS ne protège pas ces requêtes, voir
+      // TRANSMISSION-Messagerie-Influence-SAV.md).
       const { rows: catRows } = await client.query(
-        "SELECT label, is_default FROM ticket_field_options WHERE field = 'category' ORDER BY sort_order"
+        "SELECT label, is_default FROM ticket_field_options WHERE tenant_id = $1 AND field = 'category' ORDER BY sort_order",
+        [tenant.id]
       );
       const { rows: statusRows } = await client.query(
-        "SELECT label, is_default FROM ticket_field_options WHERE field = 'status' ORDER BY sort_order"
+        "SELECT label, is_default FROM ticket_field_options WHERE tenant_id = $1 AND field = 'status' ORDER BY sort_order",
+        [tenant.id]
       );
       const catLabels = catRows.map((r) => r.label);
       const statusLabels = statusRows.map((r) => r.label);
