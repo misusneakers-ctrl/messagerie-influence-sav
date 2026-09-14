@@ -37,7 +37,14 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         return { message: existingByKey[0], alreadyProcessed: true };
       }
 
-      const { rows: msgRows } = await client.query('SELECT * FROM ticket_messages WHERE id = $1 AND ticket_id = $2', [messageId, ticketId]);
+      // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté sur les deux
+      // requêtes suivantes (message et ticket). Sans lui, un messageId/
+      // ticketId d'une AUTRE marque pouvait être accepté (RLS ne protège
+      // pas ces requêtes — voir TRANSMISSION-Messagerie-Influence-SAV.md).
+      const { rows: msgRows } = await client.query(
+        'SELECT * FROM ticket_messages WHERE id = $1 AND ticket_id = $2 AND tenant_id = $3',
+        [messageId, ticketId, tenant.id]
+      );
       const message = msgRows[0];
       if (!message) {
         const err = new Error('message_not_found');
@@ -50,15 +57,23 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         throw err;
       }
 
-      const { rows: ticketRows } = await client.query('SELECT * FROM tickets WHERE id = $1', [ticketId]);
+      const { rows: ticketRows } = await client.query(
+        'SELECT * FROM tickets WHERE id = $1 AND tenant_id = $2',
+        [ticketId, tenant.id]
+      );
       const ticket = ticketRows[0];
+      if (!ticket) {
+        const err = new Error('ticket_not_found');
+        err.httpStatus = 404;
+        throw err;
+      }
 
       if (ticket.channel === 'instagram') {
         const { rows: lastInboundRows } = await client.query(
           `SELECT created_at FROM ticket_messages
-           WHERE ticket_id = $1 AND direction = 'inbound'
+           WHERE ticket_id = $1 AND tenant_id = $2 AND direction = 'inbound'
            ORDER BY created_at DESC LIMIT 1`,
-          [ticketId]
+          [ticketId, tenant.id]
         );
         const lastInboundAt = lastInboundRows[0]?.created_at;
         if (!instagram.isWithinResponseWindow(lastInboundAt)) {
@@ -90,8 +105,8 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           });
         } catch (sendErr) {
           await client.query(
-            `UPDATE ticket_messages SET status = 'rejected', error = $1, idempotency_key = $2 WHERE id = $3`,
-            [sendErr.message, body.idempotency_key, messageId]
+            `UPDATE ticket_messages SET status = 'rejected', error = $1, idempotency_key = $2 WHERE id = $3 AND tenant_id = $4`,
+            [sendErr.message, body.idempotency_key, messageId, tenant.id]
           );
           await logAudit(client, tenant.id, {
             actor: body.approved_by,
@@ -109,8 +124,8 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         const { rows: sentRows } = await client.query(
           `UPDATE ticket_messages
            SET status = 'sent', sent_at = now(), external_message_id = $1, idempotency_key = $2
-           WHERE id = $3 RETURNING *`,
-          [sendOutcome.externalMessageId, body.idempotency_key, messageId]
+           WHERE id = $3 AND tenant_id = $4 RETURNING *`,
+          [sendOutcome.externalMessageId, body.idempotency_key, messageId, tenant.id]
         );
         await logAudit(client, tenant.id, {
           actor: body.approved_by,
