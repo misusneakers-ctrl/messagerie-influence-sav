@@ -13,9 +13,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
 
   if (req.method === 'GET') {
     const messages = await withTenant(tenant.id, async (client) => {
+      // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté. Sans lui,
+      // connaître un ticketId (UUID) d'une AUTRE marque suffisait à lire
+      // son fil de messages complet via cette route (RLS ne protège pas
+      // cette requête — voir TRANSMISSION-Messagerie-Influence-SAV.md).
       const { rows } = await client.query(
-        `SELECT * FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC`,
-        [ticketId]
+        `SELECT * FROM ticket_messages WHERE ticket_id = $1 AND tenant_id = $2 ORDER BY created_at ASC`,
+        [ticketId, tenant.id]
       );
       return rows;
     });
@@ -36,7 +40,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
 
     try {
       const message = await withTenant(tenant.id, async (client) => {
-        const { rows: ticketRows } = await client.query('SELECT * FROM tickets WHERE id = $1', [ticketId]);
+        // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté sur cette
+        // vérification d'existence du ticket — sans lui, un ticketId d'une
+        // AUTRE marque était accepté silencieusement.
+        const { rows: ticketRows } = await client.query(
+          'SELECT * FROM tickets WHERE id = $1 AND tenant_id = $2',
+          [ticketId, tenant.id]
+        );
         const ticket = ticketRows[0];
         if (!ticket) {
           const err = new Error('ticket_not_found');
@@ -51,8 +61,8 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           // sans message entrant explicite doit d'abord recevoir un message
           // "inbound" représentant la demande initiale.
           const { rows: inboundRows } = await client.query(
-            `SELECT 1 FROM ticket_messages WHERE ticket_id = $1 AND direction = 'inbound' LIMIT 1`,
-            [ticketId]
+            `SELECT 1 FROM ticket_messages WHERE ticket_id = $1 AND tenant_id = $2 AND direction = 'inbound' LIMIT 1`,
+            [ticketId, tenant.id]
           );
           if (inboundRows.length === 0) {
             const err = new Error('no_inbound_interaction_yet');
