@@ -32,9 +32,16 @@ async function processOne(tenant, item, approvedBy) {
       return { message_id: messageId, ticket_id: ticketId, outcome: 'sent', already_processed: true };
     }
 
+    // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté sur TOUTES les
+    // requêtes ci-dessous (lecture et écriture). Sans lui, un message_id /
+    // ticket_id appartenant à l'AUTRE marque était accepté tel quel — un lot
+    // pouvait valider ET ENVOYER un message d'un autre tenant (RLS ne
+    // protège pas ces requêtes, rôle applicatif en BYPASSRLS ; même défaut
+    // que celui corrigé le 14/09 sur validate.js et send.js, jamais reporté
+    // ici alors que ce fichier réplique exactement leur logique).
     const { rows: msgRows } = await client.query(
-      'SELECT * FROM ticket_messages WHERE id = $1 AND ticket_id = $2',
-      [messageId, ticketId]
+      'SELECT * FROM ticket_messages WHERE id = $1 AND ticket_id = $2 AND tenant_id = $3',
+      [messageId, ticketId, tenant.id]
     );
     const message = msgRows[0];
     if (!message) {
@@ -50,7 +57,7 @@ async function processOne(tenant, item, approvedBy) {
     let finalBody = message.body;
     if (typeof item.body === 'string' && item.body.trim() && item.body !== message.body) {
       finalBody = item.body;
-      await client.query(`UPDATE ticket_messages SET body = $1 WHERE id = $2`, [finalBody, messageId]);
+      await client.query(`UPDATE ticket_messages SET body = $1 WHERE id = $2 AND tenant_id = $3`, [finalBody, messageId, tenant.id]);
       await logAudit(client, tenant.id, {
         actor: approvedBy,
         action: 'draft_edited',
@@ -60,7 +67,7 @@ async function processOne(tenant, item, approvedBy) {
       });
     }
 
-    const { rows: ticketRows } = await client.query('SELECT * FROM tickets WHERE id = $1', [ticketId]);
+    const { rows: ticketRows } = await client.query('SELECT * FROM tickets WHERE id = $1 AND tenant_id = $2', [ticketId, tenant.id]);
     const ticket = ticketRows[0];
     if (!ticket) {
       return { message_id: messageId, ticket_id: ticketId, outcome: 'error', reason: 'ticket_not_found' };
@@ -74,9 +81,9 @@ async function processOne(tenant, item, approvedBy) {
 
     const { rows: lastInboundRows } = await client.query(
       `SELECT created_at FROM ticket_messages
-       WHERE ticket_id = $1 AND direction = 'inbound'
+       WHERE ticket_id = $1 AND tenant_id = $2 AND direction = 'inbound'
        ORDER BY created_at DESC LIMIT 1`,
-      [ticketId]
+      [ticketId, tenant.id]
     );
     const lastInboundAt = lastInboundRows[0]?.created_at;
     if (!instagram.isWithinResponseWindow(lastInboundAt)) {
@@ -86,8 +93,8 @@ async function processOne(tenant, item, approvedBy) {
     // Validation (draft -> validated) : tracée exactement comme si Luc avait
     // cliqué "Valider" sur ce ticket précis, un par un.
     await client.query(
-      `UPDATE ticket_messages SET status = 'validated', validated_by = $1, validated_at = now() WHERE id = $2`,
-      [approvedBy, messageId]
+      `UPDATE ticket_messages SET status = 'validated', validated_by = $1, validated_at = now() WHERE id = $2 AND tenant_id = $3`,
+      [approvedBy, messageId, tenant.id]
     );
     await logAudit(client, tenant.id, {
       actor: approvedBy,
@@ -118,8 +125,8 @@ async function processOne(tenant, item, approvedBy) {
       });
     } catch (sendErr) {
       await client.query(
-        `UPDATE ticket_messages SET status = 'rejected', error = $1, idempotency_key = $2 WHERE id = $3`,
-        [sendErr.message, idempotencyKey, messageId]
+        `UPDATE ticket_messages SET status = 'rejected', error = $1, idempotency_key = $2 WHERE id = $3 AND tenant_id = $4`,
+        [sendErr.message, idempotencyKey, messageId, tenant.id]
       );
       await logAudit(client, tenant.id, {
         actor: approvedBy,
@@ -134,8 +141,8 @@ async function processOne(tenant, item, approvedBy) {
     await client.query(
       `UPDATE ticket_messages
        SET status = 'sent', sent_at = now(), external_message_id = $1, idempotency_key = $2
-       WHERE id = $3`,
-      [sendOutcome.externalMessageId, idempotencyKey, messageId]
+       WHERE id = $3 AND tenant_id = $4`,
+      [sendOutcome.externalMessageId, idempotencyKey, messageId, tenant.id]
     );
     await logAudit(client, tenant.id, {
       actor: approvedBy,
