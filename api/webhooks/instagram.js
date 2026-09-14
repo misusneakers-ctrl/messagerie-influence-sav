@@ -27,7 +27,16 @@ const { withTenant, withoutTenant } = require('../../lib/db');
 const { decrypt } = require('../../lib/crypto');
 const { logAudit } = require('../../lib/audit');
 
-const WEBHOOK_VERIFY_TOKEN = '0d2ae112e87fb8f3d5f77677d96152f8';
+// Correctif sécurité 2026-09-14 : ce token était en dur dans le code, sur un
+// repo public (même mauvaise pratique que les fuites de credentials déjà
+// notées à trois reprises — voir TRANSMISSION-Messagerie-Influence-SAV.md).
+// Il ne sert qu'à la poignée de main de souscription du webhook (moins
+// critique qu'un secret d'app), mais sort quand même du code : à poser sur
+// Vercel comme variable d'environnement WEBHOOK_VERIFY_TOKEN, avec la même
+// valeur que celle déjà configurée côté Meta Dev Dashboard pour ce webhook
+// ('0d2ae112e87fb8f3d5f77677d96152f8' au moment de ce correctif — à
+// reporter telle quelle dans la variable d'env pour ne rien casser).
+const WEBHOOK_VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
 
 async function findTenantByInstagramAccountId(igAccountId) {
   return withoutTenant(async (client) => {
@@ -122,17 +131,24 @@ module.exports = async function handler(req, res) {
         || entry.changes?.[0]?.value?.id
         || `${igAccountId}:${subtype}`;
 
+      // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté sur ces deux
+      // requêtes. Le tenant est déjà résolu sans ambiguïté par
+      // ig_business_account_id ci-dessus, donc le risque pratique était
+      // faible (il aurait fallu une collision d'external_thread_id entre
+      // deux comptes Instagram différents), mais rien ne doit dépendre de
+      // RLS dans cette appli (rôle applicatif en BYPASSRLS — voir
+      // TRANSMISSION-Messagerie-Influence-SAV.md).
       const { rows: existing } = await client.query(
-        `SELECT id FROM tickets WHERE channel = 'instagram' AND external_thread_id = $1 LIMIT 1`,
-        [externalThreadId]
+        `SELECT id FROM tickets WHERE tenant_id = $1 AND channel = 'instagram' AND external_thread_id = $2 LIMIT 1`,
+        [tenantRow.id, externalThreadId]
       );
 
       let ticketId;
       if (existing[0]) {
         ticketId = existing[0].id;
         await client.query(
-          `UPDATE tickets SET status = 'a_traiter', updated_at = now() WHERE id = $1`,
-          [ticketId]
+          `UPDATE tickets SET status = 'a_traiter', updated_at = now() WHERE id = $1 AND tenant_id = $2`,
+          [ticketId, tenantRow.id]
         );
       } else {
         const category = subtype === 'comment' || subtype === 'mention' ? 'Influence' : 'Autre';
