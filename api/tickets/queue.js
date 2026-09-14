@@ -15,6 +15,11 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
 
   const rows = await withTenant(tenant.id, async (client) => {
     const { rows } = await client.query(
+      // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté sur t.
+      // Sans lui, cette vue (la "File de validation") affichait les
+      // brouillons sortants des DEUX marques mélangés — fuite cross-tenant
+      // en lecture, déclenchable simplement en ouvrant la page (RLS ne
+      // protège pas cette requête, rôle applicatif en BYPASSRLS).
       `SELECT
          t.id AS ticket_id, t.channel, t.category, t.status AS ticket_status,
          t.contact_name, t.contact_handle, t.contact_email, t.related_order_number,
@@ -24,14 +29,16 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
          rel.score_total, rel.relationship_status
        FROM tickets t
        JOIN ticket_messages tm
-         ON tm.ticket_id = t.id AND tm.direction = 'outbound' AND tm.status = 'draft'
+         ON tm.ticket_id = t.id AND tm.direction = 'outbound' AND tm.status = 'draft' AND tm.tenant_id = $1
        LEFT JOIN LATERAL (
          SELECT created_at, body FROM ticket_messages
-         WHERE ticket_id = t.id AND direction = 'inbound'
+         WHERE ticket_id = t.id AND direction = 'inbound' AND tenant_id = $1
          ORDER BY created_at DESC LIMIT 1
        ) li ON true
-       LEFT JOIN tenant_influence_relations rel ON rel.id = t.influence_relation_id
-       ORDER BY tm.created_at ASC`
+       LEFT JOIN tenant_influence_relations rel ON rel.id = t.influence_relation_id AND rel.tenant_id = $1
+       WHERE t.tenant_id = $1
+       ORDER BY tm.created_at ASC`,
+      [tenant.id]
     );
     return rows;
   });
