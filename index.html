@@ -797,7 +797,16 @@ async function syncInfluenceProfile(accountId, btn) {
     if (err.message && err.message.includes('facebook_not_connected')) {
       toast('Connecte d\'abord Facebook pour cette marque (bouton "🔗 Connecter Facebook").', true);
     } else {
-      toast('Erreur de synchro : ' + err.message, true);
+      // Correctif 2026-09-15 (4e passage) : le message d'erreur générique
+      // ("meta_api_error") ne suffisait pas à diagnostiquer quoi que ce
+      // soit — on affiche maintenant aussi le détail renvoyé par l'API
+      // Meta (err.payload.detail, posé par sync-business.js) quand il est
+      // présent, pour voir tout de suite la vraie cause (permission
+      // manquante, compte non éligible à Business Discovery, etc.).
+      const detail = err.payload && err.payload.detail
+        ? (typeof err.payload.detail === 'string' ? err.payload.detail : JSON.stringify(err.payload.detail))
+        : '';
+      toast('Erreur de synchro : ' + err.message + (detail ? ' — ' + detail : ''), true);
     }
   } finally {
     btn.disabled = false;
