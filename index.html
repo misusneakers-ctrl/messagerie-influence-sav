@@ -74,8 +74,27 @@
 
   .empty{padding:30px 16px;color:var(--muted);font-size:13px;text-align:center;}
 
-  .detail{display:flex;flex-direction:column;height:100%;}
-  .detail-header{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--panel);}
+  /* Correctif 2026-09-15 (10e passage), demandé par Luc : le composeur
+  (zone de réponse en bas) se retrouvait poussé hors de l'écran / coupé au
+  lieu de rester fixe et entièrement visible. Cause : `.col` (règle plus
+  haut) pose `overflow-y:auto` sur CET élément, qui a aussi son propre
+  layout flex-colonne avec `.thread` en `flex:1` censé absorber tout
+  l'espace et scroller seul — mais un item flex garde par défaut
+  `min-height:auto`, donc dès que l'en-tête (statuts, panneau influence…)
+  + le fil devenaient plus hauts que la colonne, c'est le `.col` PARENT qui
+  scrollait tout le bloc d'un coup (en-tête + fil + composeur ensemble) au
+  lieu de laisser le composeur fixe et seul le fil scroller. `overflow:
+  hidden` ici désactive ce scroll parasite du conteneur, et `min-height:0`
+  sur `.thread` (plus bas) l'autorise enfin à vraiment rétrécir et à
+  scroller lui seul — le composeur reste alors toujours entièrement visible
+  en bas, quelle que soit la longueur du fil ou de l'en-tête. */
+  .detail{display:flex;flex-direction:column;height:100%;overflow:hidden;}
+  /* flex-shrink:0 : garde toujours sa taille naturelle plutôt que de se
+  faire écraser par le fil de messages ; overflow-y:auto + max-height : si
+  jamais il devient très haut (recherche de profil influence ouverte, etc.),
+  IL scrolle en interne plutôt que de repousser le composeur hors champ —
+  voir le correctif complet sur .detail plus haut. */
+  .detail-header{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0;max-height:55vh;overflow-y:auto;}
   .detail-header .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
   .detail-header h2{margin:0;font-size:16px;}
   .detail-header .sub{color:var(--muted);font-size:12.5px;margin-top:3px;}
@@ -105,7 +124,7 @@
   .profile-card-stats a{color:var(--accent);text-decoration:none;}
   .profile-card-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;}
 
-  .thread{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:2px;}
+  .thread{flex:1;min-height:0;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:2px;}
   /* Correctif 2026-09-15 (compacité du fil) : les bulles occupaient au plus
      70% de la largeur du fil, ce qui laissait beaucoup de vide de part et
      d'autre et forçait le texte à retomber sur davantage de lignes qu'il
@@ -152,7 +171,2079 @@
   .msg .attachments video{max-width:220px;max-height:220px;border-radius:8px;display:block;}
   .msg .attachments a.file-attachment{font-size:12px;color:var(--accent);text-decoration:underline;}
 
-  .composer{border-top:1px solid var(--border);padding:12px 18px;background:var(--panel);}
+  .composer{border-top:1px solid var(--border);padding:12px 18px;background:var(--panel);flex-shrink:0;}
+  .composer textarea{width:100%;min-height:60px;padding:9px 10px;border:1px solid var(--border);
+    border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;}
+  .composer .row{display:flex;justify-content:space-between;margin-top:8px;align-items:center;flex-wrap:wrap;gap:8px;}
+  .composer .hint{font-size:11.5px;color:var(--muted);flex:1;min-width:200px;}
+  .composer .row .composer-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  /* Correctif 2026-09-15 (pièce jointe sortante) */
+  .composer .attach-btn{background:none;border:1px solid var(--border);border-radius:8px;width:34px;height:34px;
+    font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text);}
+  .composer .attach-btn:hover{background:var(--bg);}
+  .composer .attach-preview{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);
+    border-radius:8px;padding:4px 8px;font-size:12px;margin-top:6px;max-width:fit-content;}
+  .composer .attach-preview .remove{cursor:pointer;color:var(--red);font-weight:bold;padding:0 2px;}
+
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;
+    align-items:center;justify-content:center;z-index:50;}
+  .modal-backdrop.open{display:flex;}
+  .modal{background:#fff;border-radius:10px;padding:20px;width:420px;max-width:92vw;max-height:86vh;overflow-y:auto;}
+  .modal.modal-wide{width:600px;}
+  .modal.modal-xwide{width:920px;}
+  /* Correctif 2026-09-15 (9e passage), fiche influenceuse détaillée façon Stellar.io */
+  .profile-detail-header{display:flex;gap:14px;align-items:flex-start;margin-bottom:14px;}
+  .profile-detail-avatar{width:64px;height:64px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+  .profile-detail-avatar-placeholder{width:64px;height:64px;border-radius:50%;background:#f1f0fe;
+    display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;}
+  .profile-detail-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:14px 0;}
+  .profile-detail-stat{background:#f8f8fb;border-radius:8px;padding:8px 10px;}
+  .profile-detail-stat .label{font-size:11px;color:var(--muted);}
+  .profile-detail-stat .value{font-size:16px;font-weight:600;}
+  .posts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px;}
+  .post-card{border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;}
+  .post-card img{width:100%;height:150px;object-fit:cover;background:#f1f0fe;display:block;}
+  .post-card .post-body{padding:6px 8px;font-size:11.5px;color:var(--muted);}
+  .post-card .post-stats{display:flex;gap:8px;font-size:12px;color:#1a1a1a;margin-bottom:2px;}
+  .post-card a{color:var(--accent);text-decoration:none;}
+  .unavailable-note{background:#fef3c7;color:#92400e;border-radius:8px;padding:8px 10px;font-size:12px;margin-top:14px;}
+  .modal h3{margin:0 0 12px;font-size:15px;}
+  .modal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;}
+  .modal input, .modal select, .modal textarea{width:100%;padding:7px 9px;border:1px solid var(--border);
+    border-radius:6px;font-size:13px;font-family:inherit;}
+  .modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+  .toast{position:fixed;bottom:18px;right:18px;background:#1c2126;color:#fff;padding:10px 14px;
+    border-radius:8px;font-size:13px;z-index:100;display:none;max-width:320px;}
+  .toast.show{display:block;}
+  .toast.error{background:#7f1d1d;}
+
+  .settings-columns{display:flex;gap:20px;flex-wrap:wrap;}
+  .settings-col{flex:1;min-width:230px;}
+  .settings-col h4{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+    margin:0 0 8px;}
+  .settings-add-row{display:flex;gap:6px;margin-top:8px;}
+  .settings-add-row input{flex:1;}
+  .option-list{border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  .option-row{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);
+    font-size:12.5px;background:#fff;}
+  .option-row:last-child{border-bottom:none;}
+  .opt-arrows{display:flex;flex-direction:column;gap:1px;}
+  .opt-arrow{border:none;background:transparent;cursor:pointer;font-size:9px;color:var(--muted);padding:0;line-height:1;}
+  .opt-arrow:disabled{opacity:.25;cursor:default;}
+  .opt-arrow:hover:not(:disabled){color:var(--accent);}
+  .opt-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .opt-default-btn, .opt-rename-btn, .opt-delete-btn{padding:2px 6px;font-size:12px;}
+  .opt-default-pill{background:#dbeafe;color:#1e40af;white-space:nowrap;}
+
+  /* ---------- File de validation (traitement en lot) ---------- */
+  .queue-view{padding:0;}
+  .queue-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--border);
+    position:sticky;top:53px;z-index:5;flex-wrap:wrap;}
+  .queue-tabs{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
+  .queue-tabs button{border:none;background:transparent;padding:6px 14px;border-radius:5px;
+    cursor:pointer;font-size:13px;color:var(--muted);}
+  .queue-tabs button.active{background:var(--accent);color:#fff;}
+  .queue-tabs button .count{margin-left:4px;opacity:.8;}
+  .queue-list{padding:14px 18px;display:flex;flex-direction:column;gap:10px;max-width:920px;margin:0 auto;}
+  .queue-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;
+    display:flex;gap:12px;}
+  .queue-card.unsendable{opacity:.65;}
+  .queue-card .qc-check{padding-top:3px;}
+  .queue-card .qc-check input[type="checkbox"]{width:17px;height:17px;cursor:pointer;}
+  .queue-card .qc-body{flex:1;min-width:0;}
+  .queue-card .qc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;}
+  .queue-card .qc-name{font-weight:600;font-size:13.5px;}
+  .queue-card .qc-badges{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
+  .queue-card .qc-context{font-size:12px;color:var(--muted);margin-top:6px;
+    background:var(--bg);border-radius:6px;padding:7px 9px;white-space:pre-wrap;}
+  .queue-card .qc-alerts{margin-top:7px;display:flex;gap:5px;flex-wrap:wrap;}
+  .queue-card textarea{width:100%;min-height:64px;margin-top:8px;padding:9px 10px;
+    border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;}
+  .queue-card textarea.edited{border-color:var(--accent);background:#fbfdff;}
+  .queue-summary{margin:0 auto 14px;max-width:920px;padding:12px 16px;border-radius:10px;
+    background:#fff;border:1px solid var(--border);font-size:13px;}
+  .queue-summary .qs-line{margin:3px 0;}
+  .queue-summary .qs-err{color:var(--red);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Messagerie</h1>
+  <div class="tenant-switch" id="tenantSwitch">
+    <button data-tenant="bbp">BBP</button>
+    <button data-tenant="misu">Misü</button>
+  </div>
+  <div class="view-switch" id="viewSwitch">
+    <button data-view="inbox" class="active">Boîte</button>
+    <button data-view="queue">File de validation</button>
+  </div>
+  <div class="search" id="searchWrap">
+    <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
+  </div>
+  <button class="btn" id="archivedToggleBtn">📦 Archivés</button>
+  <button class="btn" id="syncInstagramBtn">🔄 Actualiser Instagram</button>
+  <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
+  <button class="btn" id="connectFacebookBtn">🔗 Connecter Facebook</button>
+  <button class="btn" id="autoLinkInfluenceBtn" title="Lie automatiquement un profil influence (créé si besoin) à tous les tickets Instagram qui n'en ont pas encore, à partir du handle du contact.">🔗 Lier tous les profils Instagram</button>
+  <button class="btn" id="syncAllBusinessBtn" title="Va chercher followers/engagement/tags pour TOUS les profils influence liés à cette marque qui n'ont pas encore leurs infos (ou pour les rafraîchir). Nécessite Facebook connecté pour cette marque.">🔄 Synchroniser tous les profils</button>
+  <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
+</header>
+
+<div class="layout" id="inboxView">
+  <div class="col col-nav" id="navCol">
+    <h2>Statut</h2>
+    <div id="statusNav"></div>
+    <h2>Catégorie</h2>
+    <div id="categoryNav"></div>
+  </div>
+
+  <div class="col" id="listCol">
+    <div class="list-toolbar">
+      <label for="ticketSortSelect">Tri</label>
+      <select id="ticketSortSelect">
+        <option value="desc">Plus récents d'abord</option>
+        <option value="asc">Plus anciens d'abord</option>
+      </select>
+    </div>
+    <div class="ticket-list" id="ticketList"><div class="empty">Chargement…</div></div>
+  </div>
+
+  <div class="col detail" id="detailCol">
+    <div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>
+  </div>
+</div>
+
+<div class="queue-view" id="queueView" style="display:none;">
+  <div class="queue-toolbar">
+    <div class="queue-tabs" id="queueTabs">
+      <button data-group="messagerie">Messagerie <span class="count" id="qCountMessagerie"></span></button>
+      <button data-group="influence">Influence <span class="count" id="qCountInfluence"></span></button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="hint" id="queueSelectedHint" style="font-size:12.5px;color:var(--muted);"></span>
+      <button class="btn btn-primary" id="queueProcessBtn" disabled>Traiter la sélection</button>
+    </div>
+  </div>
+  <div id="queueSummary"></div>
+  <div class="queue-list" id="queueList"><div class="empty">Chargement…</div></div>
+</div>
+
+<div class="modal-backdrop" id="newTicketModal">
+  <div class="modal">
+    <h3>Nouveau ticket</h3>
+    <label>Canal</label>
+    <select id="ntChannel">
+      <option value="instagram">Instagram</option>
+      <option value="email">Email</option>
+    </select>
+    <label>Catégorie</label>
+    <select id="ntCategory"></select>
+    <label>Nom du contact</label>
+    <input type="text" id="ntName" placeholder="Ex. Camille Durand" />
+    <label>Handle Instagram (sans @, si canal Instagram)</label>
+    <input type="text" id="ntHandle" placeholder="Ex. camille.durand" />
+    <label>Email (si canal email)</label>
+    <input type="text" id="ntEmail" placeholder="Ex. camille@exemple.com" />
+    <label>Numéro de commande lié (optionnel)</label>
+    <input type="text" id="ntOrder" placeholder="Ex. C294671" />
+    <label>Message initial reçu</label>
+    <textarea id="ntBody" rows="3" placeholder="Le message tel que reçu du contact…"></textarea>
+    <div class="actions">
+      <button class="btn" id="ntCancel">Annuler</button>
+      <button class="btn btn-primary" id="ntCreate">Créer le ticket</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="settingsModal">
+  <div class="modal modal-wide">
+    <h3>Statuts et catégories — <span id="settingsTenantLabel"></span></h3>
+    <div class="settings-columns">
+      <div class="settings-col">
+        <h4>Statuts</h4>
+        <div class="option-list" id="statusOptionsList"></div>
+        <div class="settings-add-row">
+          <input type="text" id="newStatusInput" placeholder="Nouveau statut…" />
+          <button class="btn" id="addStatusBtn">Ajouter</button>
+        </div>
+      </div>
+      <div class="settings-col">
+        <h4>Catégories</h4>
+        <div class="option-list" id="categoryOptionsList"></div>
+        <div class="settings-add-row">
+          <input type="text" id="newCategoryInput" placeholder="Nouvelle catégorie…" />
+          <button class="btn" id="addCategoryBtn">Ajouter</button>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" id="settingsCloseBtn">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="editProfileModal">
+  <div class="modal">
+    <h3>Éditer le profil influence</h3>
+    <label>Lien Instagram</label>
+    <input type="text" id="epInstagramUrl" placeholder="https://instagram.com/handle" />
+    <label>Photo de profil (URL)</label>
+    <input type="text" id="epProfilePictureUrl" placeholder="https://…" />
+    <label>Followers</label>
+    <input type="text" id="epFollowerCount" placeholder="Ex. 12500" />
+    <label>Taux d'engagement (%)</label>
+    <input type="text" id="epEngagement" placeholder="Ex. 3.2" />
+    <label>Email</label>
+    <input type="text" id="epEmail" placeholder="Non fourni par Instagram — à remplir à la main" />
+    <label>Âge</label>
+    <input type="text" id="epAge" placeholder="Non fourni par Instagram — à remplir à la main" />
+    <label>Lien vers une story sauvegardée (capture, repost…)</label>
+    <input type="text" id="epSavedStoryUrl" placeholder="Non accessible via l'API — à coller à la main" />
+    <label>Tags fréquents (séparés par des virgules)</label>
+    <input type="text" id="epTags" placeholder="Ex. mode, lifestyle, paris" />
+    <div class="actions">
+      <button class="btn" id="epCancel">Annuler</button>
+      <button class="btn btn-primary" id="epSave">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Correctif 2026-09-15 (7e passage), demandé par Luc : jusqu'ici rien ne
+permettait de saisir les 6 sous-notes du score (toujours 0/100 affiché) —
+ni sur l'identité du profil (déjà éditable via "✎ Éditer" ci-dessus) ni sur
+la relation propre à cette marque (score_*, relationship_status,
+next_action, owner). Cette modale couvre la relation, via le nouveau
+endpoint PATCH /api/relations/[id]/score. Chaque note reste plafonnée et
+doit être justifiable par une observation/preuve (contrainte du cahier des
+charges) — d'où le rappel sous chaque champ, notamment le lien "Vérifier
+fake followers" déjà présent dans le panneau pour informer la note
+"audience pertinente". -->
+<div class="modal-backdrop" id="scoreModal">
+  <div class="modal">
+    <h3>Noter le profil influence (score sur 100)</h3>
+    <label>Adéquation marque et univers (0-25)</label>
+    <input type="number" id="scBrandFit" min="0" max="25" placeholder="Ex. 20" />
+    <label>Qualité créative et contenu réutilisable (0-20)</label>
+    <input type="number" id="scContentQuality" min="0" max="20" placeholder="Ex. 15" />
+    <label>Engagement et vues récentes (0-20)</label>
+    <input type="number" id="scEngagement" min="0" max="20" placeholder="Ex. 14" />
+    <label>Audience pertinente observable (0-15) — s'appuyer sur le lien "Vérifier fake followers" du panneau</label>
+    <input type="number" id="scAudienceRelevance" min="0" max="15" placeholder="Ex. 10" />
+    <label>Fiabilité relationnelle et historique (0-10)</label>
+    <input type="number" id="scReliability" min="0" max="10" placeholder="Ex. 8" />
+    <label>Potentiel commercial ou affilié (0-10)</label>
+    <input type="number" id="scCommercialPotential" min="0" max="10" placeholder="Ex. 7" />
+    <div style="margin:10px 0;font-size:13px;color:var(--muted);">Total actuel : <strong id="scTotalPreview">0</strong>/100</div>
+    <label>Statut de la relation</label>
+    <input type="text" id="scRelationshipStatus" placeholder="Ex. à relancer, partenaire actif, refusé…" />
+    <label>Prochaine action</label>
+    <input type="text" id="scNextAction" placeholder="Ex. envoyer proposition gifting" />
+    <label>Responsable</label>
+    <input type="text" id="scOwner" placeholder="Ex. Luc" />
+    <div class="actions">
+      <button class="btn" id="scCancel">Annuler</button>
+      <button class="btn btn-primary" id="scSave">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Correctif 2026-09-15 (9e passage), demandé par Luc, inspiré de
+Stellar.io : fiche influenceuse détaillée en grand format — stats en un
+coup d'œil + grille des 15 derniers posts (vignette, likes, commentaires,
+date, lien). Contenu généré dynamiquement par openProfileDetailModal(). -->
+<div class="modal-backdrop" id="profileDetailModal">
+  <div class="modal modal-xwide" id="profileDetailContent"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const state = {
+  tenant: localStorage.getItem('msav_tenant') || 'bbp',
+  view: 'inbox', // 'inbox' | 'queue'
+  category: '',
+  status: '',
+  q: '',
+  showArchived: false,
+  tickets: [],
+  selectedTicket: null,
+  messages: [],
+  linkedProfile: null,
+  pendingAttachment: null, // {type:'image'|'video'|'file', url, filename} en attente d'envoi — correctif 2026-09-15
+  threadSortOrder: 'asc', // 'asc' (plus anciens en haut, défaut) | 'desc' (plus récents en haut) — correctif 2026-09-15
+  ticketSortOrder: 'desc', // 'desc' (plus récent d'abord, défaut) | 'asc' — tri de la LISTE des tickets, correctif 2026-09-15
+  categories: [], // [{id,label,sort_order,is_default}]
+  statuses: [],
+  queue: {
+    items: [],
+    group: 'messagerie', // 'messagerie' | 'influence'
+    selected: new Set(), // message_id
+    edited: new Map(),   // message_id -> texte modifié
+  },
+};
+
+// ---------- API ----------
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Tenant-Slug': state.tenant,
+      ...(opts.headers || {}),
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  let payload = {};
+  try { payload = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const err = new Error(payload.error || `Erreur ${res.status}`);
+    err.payload = payload;
+    throw err;
+  }
+  return payload;
+}
+
+function toast(msg, isError) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = 'toast'; }, 3500);
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) + ' ' +
+      d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s == null ? '' : String(s);
+  return div.innerHTML;
+}
+
+// Couleur stable dérivée du texte du statut, pour distinguer visuellement des
+// statuts que Luc peut renommer ou créer librement (donc pas de mapping figé
+// par valeur).
+function labelHash(label) {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
+  return hash % 360;
+}
+function statusBg(label) { return `hsl(${labelHash(label)}, 70%, 93%)`; }
+function statusFg(label) { return `hsl(${labelHash(label)}, 55%, 30%)`; }
+
+// ---------- Statuts / catégories (catalogue éditable par marque) ----------
+async function loadTaxonomy() {
+  const [catData, statusData] = await Promise.all([
+    api('/api/settings/options?field=category'),
+    api('/api/settings/options?field=status'),
+  ]);
+  state.categories = catData.options || [];
+  state.statuses = statusData.options || [];
+}
+
+// ---------- Nav (statut / catégorie) ----------
+function renderNav() {
+  const statusNav = document.getElementById('statusNav');
+  statusNav.innerHTML = '';
+  const allStatus = document.createElement('div');
+  allStatus.className = 'nav-item' + (state.status === '' ? ' active' : '');
+  allStatus.textContent = 'Tous';
+  allStatus.onclick = () => { state.status = ''; renderNav(); loadTickets(); };
+  statusNav.appendChild(allStatus);
+  state.statuses.forEach((s) => {
+    const item = document.createElement('div');
+    item.className = 'nav-item' + (state.status === s.label ? ' active' : '');
+    item.textContent = s.label;
+    item.onclick = () => { state.status = s.label; renderNav(); loadTickets(); };
+    statusNav.appendChild(item);
+  });
+
+  const catNav = document.getElementById('categoryNav');
+  catNav.innerHTML = '';
+  const allCat = document.createElement('div');
+  allCat.className = 'nav-item' + (state.category === '' ? ' active' : '');
+  allCat.textContent = 'Toutes';
+  allCat.onclick = () => { state.category = ''; renderNav(); loadTickets(); };
+  catNav.appendChild(allCat);
+  state.categories.forEach((c) => {
+    const item = document.createElement('div');
+    item.className = 'nav-item' + (state.category === c.label ? ' active' : '');
+    item.textContent = c.label;
+    item.onclick = () => { state.category = c.label; renderNav(); loadTickets(); };
+    catNav.appendChild(item);
+  });
+}
+
+// ---------- Liste de tickets ----------
+async function loadTickets() {
+  const listEl = document.getElementById('ticketList');
+  listEl.innerHTML = '<div class="empty">Chargement…</div>';
+  try {
+    const params = new URLSearchParams();
+    if (state.category) params.set('category', state.category);
+    if (state.status) params.set('status', state.status);
+    if (state.q) params.set('q', state.q);
+    // Les archivés sont exclus par défaut côté API ; en mode "Archivés" on
+    // les redemande explicitement puis on affiche uniquement ceux-là.
+    if (state.showArchived) params.set('include_archived', '1');
+    // Correctif 2026-09-15 : tri réglable de la liste des tickets, sur la
+    // date réelle du dernier message (voir api/tickets/index.js) plutôt que
+    // sur updated_at qui pouvait être posé par n'importe quelle modification
+    // du ticket, sans rapport avec un message.
+    params.set('sort', state.ticketSortOrder);
+    const data = await api('/api/tickets?' + params.toString());
+    const tickets = data.tickets || [];
+    state.tickets = state.showArchived ? tickets.filter((t) => t.archived_at) : tickets;
+    renderTicketList();
+  } catch (err) {
+    listEl.innerHTML = '<div class="empty">Erreur de chargement : ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function renderTicketList() {
+  const listEl = document.getElementById('ticketList');
+  if (state.tickets.length === 0) {
+    listEl.innerHTML = '<div class="empty">' + (state.showArchived ? 'Aucun ticket archivé.' : 'Aucun ticket ici.') + '</div>';
+    return;
+  }
+  listEl.innerHTML = '';
+  state.tickets.forEach((t) => {
+    const item = document.createElement('div');
+    item.className = 'ticket-item' + (state.selectedTicket && state.selectedTicket.id === t.id ? ' active' : '');
+    const name = t.contact_name || t.contact_handle || t.contact_email || '(sans nom)';
+    item.innerHTML = `
+      <div class="row1">
+        <div class="name">${escapeHtml(name)}</div>
+        <div class="date">${fmtDate(t.last_message_at || t.updated_at)}</div>
+      </div>
+      <div class="meta">
+        <span class="badge badge-channel">${escapeHtml(t.channel)}</span>
+        <span class="badge badge-cat">${escapeHtml(t.category)}</span>
+        <span class="badge badge-status" style="background:${statusBg(t.status)};color:${statusFg(t.status)};">${escapeHtml(t.status)}</span>
+        ${t.archived_at ? '<span class="badge badge-alert">📦 archivé</span>' : ''}
+      </div>
+      ${t.summary ? `<div class="summary">${escapeHtml(t.summary)}</div>` : ''}
+    `;
+    item.onclick = () => selectTicket(t.id);
+    listEl.appendChild(item);
+  });
+}
+
+// ---------- Détail d'un ticket ----------
+async function selectTicket(id) {
+  try {
+    const [ticketData, messagesData] = await Promise.all([
+      api('/api/tickets/' + id),
+      api('/api/tickets/' + id + '/messages'),
+    ]);
+    state.selectedTicket = ticketData.ticket;
+    state.messages = messagesData.messages || [];
+    state.linkedProfile = null;
+    renderTicketList();
+    await renderDetail();
+    if (state.selectedTicket.influence_relation_id) {
+      loadLinkedProfile(state.selectedTicket.influence_relation_id);
+    }
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function refreshSelectedTicket() {
+  if (!state.selectedTicket) return;
+  const id = state.selectedTicket.id;
+  const [ticketData, messagesData] = await Promise.all([
+    api('/api/tickets/' + id),
+    api('/api/tickets/' + id + '/messages'),
+  ]);
+  state.selectedTicket = ticketData.ticket;
+  state.messages = messagesData.messages || [];
+  renderTicketList();
+  await renderDetail();
+}
+
+async function loadLinkedProfile(relationId) {
+  try {
+    const data = await api('/api/profiles');
+    const found = (data.profiles || []).find((p) => p.relation.id === relationId);
+    state.linkedProfile = found || null;
+    renderInfluenceBox();
+  } catch (err) { /* pas bloquant */ }
+}
+
+async function renderDetail() {
+  const t = state.selectedTicket;
+  const detailCol = document.getElementById('detailCol');
+  const name = t.contact_name || t.contact_handle || t.contact_email || '(sans nom)';
+
+  const catOptions = state.categories.map((c) => `<option value="${escapeHtml(c.label)}" ${c.label === t.category ? 'selected' : ''}>${escapeHtml(c.label)}</option>`).join('');
+  const statusOptions = state.statuses.map((s) => `<option value="${escapeHtml(s.label)}" ${s.label === t.status ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('');
+
+  detailCol.innerHTML = `
+    <div class="detail-header">
+      <div class="top">
+        <div>
+          <h2>${escapeHtml(name)}</h2>
+          <div class="sub">
+            ${t.contact_handle ? '@' + escapeHtml(t.contact_handle) + ' · ' : ''}
+            ${t.contact_email ? escapeHtml(t.contact_email) + ' · ' : ''}
+            canal ${escapeHtml(t.channel)}
+            ${t.archived_at ? ' · <span class="badge badge-alert">📦 archivé</span>' : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn" id="archiveBtn">${t.archived_at ? '♻️ Désarchiver' : '📦 Archiver'}</button>
+          <button class="btn btn-danger" id="deleteTicketBtn">🗑 Supprimer</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div><label>Statut</label><select id="statusSelect">${statusOptions}</select></div>
+        <div><label>Catégorie</label><select id="categorySelect">${catOptions}</select></div>
+        <div><label>Commande liée</label><input type="text" id="orderInput" value="${escapeHtml(t.related_order_number || '')}" placeholder="Ex. C294671" /></div>
+        <div><label>Assigné à</label><input type="text" id="assignedInput" value="${escapeHtml(t.assigned_to || '')}" placeholder="Ex. Luc" /></div>
+        <div><label>Tri des messages</label><select id="threadSortSelect">
+          <option value="asc" ${state.threadSortOrder === 'asc' ? 'selected' : ''}>Plus anciens en premier</option>
+          <option value="desc" ${state.threadSortOrder === 'desc' ? 'selected' : ''}>Plus récents en premier</option>
+        </select></div>
+      </div>
+      <div class="influence-box" id="influenceBox"></div>
+      <div class="influence-search" id="influenceSearch">
+        <input type="text" id="profileSearchInput" placeholder="Chercher un profil influence (nom, handle)…" />
+        <div class="influence-results" id="influenceResults"></div>
+        <div style="margin-top:8px;font-size:12px;color:var(--muted);">Pas trouvé ?
+          <a href="#" id="createProfileLink">Créer un nouveau profil influence</a> et le lier directement.
+        </div>
+      </div>
+    </div>
+    <div class="thread" id="thread"></div>
+    <div class="composer">
+      <textarea id="composerInput" placeholder="Écrire une réponse…"></textarea>
+      <div id="attachPreviewBox"></div>
+      <div class="row">
+        <div class="hint">« Enregistrer le brouillon » passe par la file de validation. « Envoyer directement » valide et envoie en un geste — utile pour une réponse déjà écrite à la main ; si l'envoi échoue (hors fenêtre 24h, canal non configuré…), le message reste enregistré comme brouillon, à valider depuis la file de validation. Pièce jointe (image, vidéo ou PDF — ex. étiquette de transport) : jointe au message, envoyée en plus du texte si les deux sont renseignés.</div>
+        <div class="composer-actions">
+          <input type="file" id="attachmentFileInput" accept="image/*,video/mp4,video/quicktime,application/pdf" style="display:none;" />
+          <button class="attach-btn" id="attachBtn" title="Joindre un fichier">📎</button>
+          <button class="btn" id="draftBtn">Enregistrer le brouillon</button>
+          <button class="btn btn-primary" id="sendDirectBtn">Envoyer directement</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('statusSelect').onchange = (e) => patchTicket({ status: e.target.value });
+  document.getElementById('categorySelect').onchange = (e) => patchTicket({ category: e.target.value });
+  document.getElementById('orderInput').onblur = (e) => patchTicket({ related_order_number: e.target.value });
+  document.getElementById('assignedInput').onblur = (e) => patchTicket({ assigned_to: e.target.value });
+  document.getElementById('threadSortSelect').onchange = (e) => { state.threadSortOrder = e.target.value; renderThread(); };
+  document.getElementById('draftBtn').onclick = createDraft;
+  document.getElementById('sendDirectBtn').onclick = sendDirectly;
+  document.getElementById('attachBtn').onclick = () => document.getElementById('attachmentFileInput').click();
+  document.getElementById('attachmentFileInput').onchange = (e) => handleAttachmentFileSelected(e.target.files[0]);
+  state.pendingAttachment = null;
+  renderAttachPreview();
+  document.getElementById('archiveBtn').onclick = toggleArchiveTicket;
+  document.getElementById('deleteTicketBtn').onclick = deleteTicketConfirm;
+  document.getElementById('createProfileLink').onclick = (e) => { e.preventDefault(); openCreateProfileModal(); };
+  document.getElementById('profileSearchInput').oninput = debounce((e) => searchProfilesForTicket(e.target.value), 300);
+
+  renderInfluenceBox();
+  renderThread();
+}
+
+// Correctif 2026-09-15 (panneau "qualité influenceuse") : le lien profil
+// n'affichait qu'une ligne de texte (nom, score, statut). Luc a demandé une
+// vraie fiche : photo, lien vers le compte Instagram, followers, taux
+// d'engagement, email, âge, lien vers une story sauvegardée, tags fréquents.
+// Ce que l'API Instagram ne peut PAS fournir automatiquement pour un compte
+// tiers (email, âge — jamais exposés par Meta —, et les stories d'un autre
+// compte, illisibles via l'API même pour celles où on est tagué) reste
+// éditable à la main via le bouton "Éditer". Followers/engagement/photo/tags
+// sont éditables à la main pour l'instant aussi et se rempliront seuls une
+// fois la Business Discovery API (Meta, connexion Facebook Login séparée)
+// configurée — voir TRANSMISSION-Messagerie-Influence-SAV.md.
+function fmtFollowers(n) {
+  if (n == null) return null;
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace('.0', '') + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1).replace('.0', '') + 'k';
+  return String(n);
+}
+
+function renderInfluenceBox() {
+  const box = document.getElementById('influenceBox');
+  if (!box) return;
+  const t = state.selectedTicket;
+  if (t.influence_relation_id && state.linkedProfile) {
+    const acc = state.linkedProfile.account;
+    const rel = state.linkedProfile.relation;
+    const followers = fmtFollowers(acc.follower_count);
+    const engagement = acc.engagement_observed != null ? `${Number(acc.engagement_observed).toFixed(1)}%` : null;
+    const tags = Array.isArray(acc.frequent_tags) ? acc.frequent_tags : [];
+    // Correctif 2026-09-15 (5e passage), demandé par Luc : comptes
+    // @mentionnés dans les légendes des posts, extraits par sync-business.js
+    // en même temps que les hashtags. Rappel de limite (voir aussi le lien
+    // "vérifier gratuitement" plus bas) : uniquement le texte des posts —
+    // les tags visuels posés directement sur une photo ne sont pas
+    // accessibles via l'API pour un compte tiers, Meta ne les expose pas.
+    const mentions = Array.isArray(acc.mentioned_accounts) ? acc.mentioned_accounts : [];
+    // Correctif 2026-09-15 (5e passage) : détection des fake/mass followers
+    // et répartition homme/femme des abonnés — Luc a demandé une solution
+    // gratuite. Meta n'expose AUCUNE de ces deux données via son API pour un
+    // compte tiers (pas de contournement possible), et il n'existe pas de
+    // service tiers proposant un accès API gratuit et automatisable pour
+    // autant. La seule option réellement gratuite est un outil web à usage
+    // manuel, un profil à la fois — on ouvre HypeAuditor (gratuit, sans
+    // compte requis pour un check ponctuel) pré-rempli avec le handle. La
+    // répartition homme/femme des abonnés, elle, n'a aucune solution
+    // gratuite, même manuelle — non proposée ici.
+    const fakeFollowerCheckUrl = acc.instagram_handle
+      ? `https://hypeauditor.com/instagram/${encodeURIComponent(acc.instagram_handle)}/`
+      : null;
+    box.innerHTML = `
+      <div class="profile-card">
+        <img class="profile-avatar" src="${acc.profile_picture_url ? escapeHtml(acc.profile_picture_url) : ''}"
+          alt="" style="${acc.profile_picture_url ? '' : 'display:none;'}" />
+        ${acc.profile_picture_url ? '' : '<div class="profile-avatar profile-avatar-placeholder">👤</div>'}
+        <div class="profile-card-body">
+          <div class="profile-card-top">
+            <strong>${escapeHtml(acc.display_name)}</strong>
+            ${acc.instagram_handle ? (acc.instagram_url
+              ? `<a href="${escapeHtml(acc.instagram_url)}" target="_blank" rel="noopener">@${escapeHtml(acc.instagram_handle)} ↗</a>`
+              : `<span>@${escapeHtml(acc.instagram_handle)}</span>`) : ''}
+          </div>
+          <div class="profile-card-stats">
+            ${followers ? `<span>👥 ${followers} followers</span>` : ''}
+            ${engagement ? `<span>📈 ${engagement} engagement</span>` : ''}
+            <span>⭐ score ${rel.score_total ?? 0}/100</span>
+            ${rel.relationship_status ? `<span>${escapeHtml(rel.relationship_status)}</span>` : ''}
+          </div>
+          <div class="profile-card-stats">
+            ${acc.email ? `<span>✉️ ${escapeHtml(acc.email)}</span>` : ''}
+            ${acc.age ? `<span>🎂 ${escapeHtml(String(acc.age))} ans</span>` : ''}
+            ${acc.saved_story_url ? `<a href="${escapeHtml(acc.saved_story_url)}" target="_blank" rel="noopener">📸 story sauvegardée ↗</a>` : ''}
+          </div>
+          ${tags.length > 0 ? `<div class="profile-card-tags">${tags.map((tg) => `<span class="badge badge-cat">#${escapeHtml(tg)}</span>`).join('')}</div>` : ''}
+          ${mentions.length > 0 ? `<div class="profile-card-tags">${mentions.map((m) => `<span class="badge badge-alert">@${escapeHtml(m)}</span>`).join('')}</div>` : ''}
+          ${acc.instagram_synced_at ? `<div style="font-size:11px;color:var(--muted);">Synchronisé le ${fmtDate(acc.instagram_synced_at)}</div>` : ''}
+          ${fakeFollowerCheckUrl ? `<div style="font-size:11px;"><a href="${escapeHtml(fakeFollowerCheckUrl)}" target="_blank" rel="noopener">🔍 Vérifier fake followers (gratuit, outil externe) ↗</a></div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <button class="btn" id="editProfileBtn">✎ Éditer</button>
+          <button class="btn" id="scoreProfileBtn">📊 Noter</button>
+          <button class="btn" id="profileDetailBtn">📋 Fiche complète</button>
+          ${acc.instagram_handle ? '<button class="btn" id="syncProfileBtn">🔄 Synchroniser</button>' : ''}
+          <button class="btn" id="unlinkProfileBtn">Délier</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('unlinkProfileBtn').onclick = () => patchTicket({ influence_relation_id: null });
+    document.getElementById('editProfileBtn').onclick = () => openEditProfileModal(acc);
+    document.getElementById('scoreProfileBtn').onclick = () => openScoreModal(rel);
+    document.getElementById('profileDetailBtn').onclick = () => openProfileDetailModal(acc, rel);
+    const syncBtn = document.getElementById('syncProfileBtn');
+    if (syncBtn) syncBtn.onclick = () => syncInfluenceProfile(acc.id, syncBtn);
+  } else if (t.influence_relation_id) {
+    box.innerHTML = `<div class="info">🔗 Profil influence lié (chargement…)</div>`;
+  } else {
+    box.innerHTML = `
+      <div class="info" style="color:var(--muted);">Aucun profil influence lié à cette discussion.</div>
+      <button class="btn" id="linkProfileBtn">Lier un profil influence</button>
+    `;
+    document.getElementById('linkProfileBtn').onclick = toggleInfluenceSearch;
+  }
+}
+
+// ---------- Notation du profil influence (correctif 2026-09-15, 7e passage) ----------
+// Répond à la demande de Luc ("pour avoir une note un peu plus quali ??
+// même en dehors de cette plateforme ? Juste pour relier la donnée") :
+// avant ce correctif, rien ne permettait de saisir les 6 sous-notes qui
+// composent le score — d'où le "0/100" partout. Le principe : Luc va
+// vérifier ce qu'il faut AILLEURS (le lien "Vérifier fake followers" déjà
+// présent, Social Blade, son propre jugement sur le contenu…), puis reporte
+// juste le chiffre ici — c'est la "liaison de la donnée" demandée, pas une
+// nouvelle automatisation.
+const SCORE_FIELD_MAX = {
+  scBrandFit: 25,
+  scContentQuality: 20,
+  scEngagement: 20,
+  scAudienceRelevance: 15,
+  scReliability: 10,
+  scCommercialPotential: 10,
+};
+function updateScoreTotalPreview() {
+  let total = 0;
+  for (const id of Object.keys(SCORE_FIELD_MAX)) {
+    const v = parseInt(document.getElementById(id).value, 10);
+    if (!isNaN(v)) total += v;
+  }
+  document.getElementById('scTotalPreview').textContent = String(total);
+}
+function openScoreModal(rel) {
+  document.getElementById('scBrandFit').value = rel.score_brand_fit ?? '';
+  document.getElementById('scContentQuality').value = rel.score_content_quality ?? '';
+  document.getElementById('scEngagement').value = rel.score_engagement ?? '';
+  document.getElementById('scAudienceRelevance').value = rel.score_audience_relevance ?? '';
+  document.getElementById('scReliability').value = rel.score_reliability ?? '';
+  document.getElementById('scCommercialPotential').value = rel.score_commercial_potential ?? '';
+  document.getElementById('scRelationshipStatus').value = rel.relationship_status || '';
+  document.getElementById('scNextAction').value = rel.next_action || '';
+  document.getElementById('scOwner').value = rel.owner || '';
+  document.getElementById('scoreModal').dataset.relationId = rel.id;
+  updateScoreTotalPreview();
+  document.getElementById('scoreModal').classList.add('open');
+}
+function closeScoreModal() {
+  document.getElementById('scoreModal').classList.remove('open');
+}
+async function saveScore() {
+  const relationId = document.getElementById('scoreModal').dataset.relationId;
+  const readScore = (id, max) => {
+    const raw = document.getElementById(id).value.trim();
+    if (!raw) return null;
+    const v = parseInt(raw, 10);
+    if (isNaN(v) || v < 0 || v > max) { throw new Error(`Valeur invalide pour ce champ (0-${max} attendu).`); }
+    return v;
+  };
+  let payload;
+  try {
+    payload = {
+      score_brand_fit: readScore('scBrandFit', 25),
+      score_content_quality: readScore('scContentQuality', 20),
+      score_engagement: readScore('scEngagement', 20),
+      score_audience_relevance: readScore('scAudienceRelevance', 15),
+      score_reliability: readScore('scReliability', 10),
+      score_commercial_potential: readScore('scCommercialPotential', 10),
+      relationship_status: document.getElementById('scRelationshipStatus').value.trim() || null,
+      next_action: document.getElementById('scNextAction').value.trim() || null,
+      owner: document.getElementById('scOwner').value.trim() || null,
+    };
+  } catch (err) {
+    toast(err.message, true);
+    return;
+  }
+  try {
+    const data = await api('/api/relations/' + relationId + '/score', { method: 'PATCH', body: payload });
+    closeScoreModal();
+    if (state.linkedProfile) { state.linkedProfile.relation = data.relation; }
+    renderInfluenceBox();
+    renderTicketList();
+    toast(`Note enregistrée : ${data.relation.score_total}/100.`);
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// ---------- Fiche influenceuse détaillée (correctif 2026-09-15, 9e passage) ----------
+// Demandé par Luc en montrant Stellar.io : une fiche plus grande et visuelle
+// avec les derniers posts (vignette, likes, commentaires…), fréquence de
+// publication, etc. Honnêteté sur les limites : répartition homme/femme,
+// répartition géographique de l'AUDIENCE et score d'authenticité façon
+// Stellar ne sont PAS reconstructibles depuis l'API Meta pour un compte
+// tiers (voir la discussion précédente sur les fake followers/genre) — la
+// fiche le rappelle plutôt que de faire semblant. Ce qui EST repris de
+// Stellar et réellement disponible : followers, engagement, derniers posts
+// avec likes/commentaires/date/lien, fréquence de publication, et une
+// répartition photo/carrousel vs vidéo (proxy "reels" le plus proche
+// possible sans accès à media_product_type, réservé aux comptes qu'on
+// possède).
+function fmtPostDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function openProfileDetailModal(acc, rel) {
+  const posts = Array.isArray(acc.last_posts) ? acc.last_posts : [];
+  const followers = fmtFollowers(acc.follower_count);
+  const engagement = acc.engagement_observed != null ? `${Number(acc.engagement_observed).toFixed(1)}%` : '—';
+  const avgLikes = posts.length ? Math.round(posts.reduce((s, p) => s + (p.like_count || 0), 0) / posts.length) : null;
+  const avgComments = posts.length ? Math.round(posts.reduce((s, p) => s + (p.comments_count || 0), 0) / posts.length) : null;
+  const videoCount = posts.filter((p) => p.media_type === 'VIDEO').length;
+  const photoCount = posts.length - videoCount;
+  const fakeFollowerCheckUrl = acc.instagram_handle ? `https://hypeauditor.com/instagram/${encodeURIComponent(acc.instagram_handle)}/` : null;
+
+  const statsHtml = `
+    <div class="profile-detail-stats-grid">
+      <div class="profile-detail-stat"><div class="label">Followers</div><div class="value">${followers || '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Engagement</div><div class="value">${engagement}</div></div>
+      <div class="profile-detail-stat"><div class="label">Score qualité</div><div class="value">${rel.score_total ?? 0}/100</div></div>
+      <div class="profile-detail-stat"><div class="label">Fréquence de post</div><div class="value">${acc.posting_frequency_days != null ? `~${acc.posting_frequency_days} j` : '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Likes moy. / post</div><div class="value">${avgLikes ?? '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Commentaires moy.</div><div class="value">${avgComments ?? '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Photos / carrousels</div><div class="value">${posts.length ? photoCount : '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Vidéos (proxy reels)</div><div class="value">${posts.length ? videoCount : '—'}</div></div>
+    </div>
+  `;
+
+  const postsHtml = posts.length > 0 ? `
+    <h3 style="margin-top:18px;">Derniers posts (${posts.length})</h3>
+    <div class="posts-grid">
+      ${posts.map((p) => `
+        <div class="post-card">
+          <img src="${escapeHtml(p.thumbnail_url || p.media_url || '')}" alt=""
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+          <div style="display:none;height:150px;align-items:center;justify-content:center;background:#f1f0fe;font-size:11px;color:var(--muted);text-align:center;padding:6px;">Vignette expirée<br>(voir le lien ↓)</div>
+          <div class="post-body">
+            <div class="post-stats">❤️ ${p.like_count ?? 0} · 💬 ${p.comments_count ?? 0}</div>
+            <div>${fmtPostDate(p.timestamp)}${p.media_type === 'VIDEO' ? ' · 🎬' : ''}</div>
+            ${p.permalink ? `<a href="${escapeHtml(p.permalink)}" target="_blank" rel="noopener">Voir le post ↗</a>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  ` : `<div class="info" style="color:var(--muted);margin-top:14px;">Aucun post récupéré — clique sur "🔄 Synchroniser" d'abord.</div>`;
+
+  document.getElementById('profileDetailContent').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div class="profile-detail-header">
+        ${acc.profile_picture_url
+          ? `<img class="profile-detail-avatar" src="${escapeHtml(acc.profile_picture_url)}" alt="" />`
+          : `<div class="profile-detail-avatar-placeholder">👤</div>`}
+        <div>
+          <h3 style="margin:0;">${escapeHtml(acc.display_name)}</h3>
+          ${acc.instagram_handle ? `<div style="font-size:13px;">${acc.instagram_url ? `<a href="${escapeHtml(acc.instagram_url)}" target="_blank" rel="noopener">@${escapeHtml(acc.instagram_handle)} ↗</a>` : '@' + escapeHtml(acc.instagram_handle)}</div>` : ''}
+          ${acc.instagram_synced_at ? `<div style="font-size:11px;color:var(--muted);">Synchronisé le ${fmtDate(acc.instagram_synced_at)}</div>` : ''}
+        </div>
+      </div>
+      <button class="btn" id="pdCloseBtn">✕</button>
+    </div>
+    ${statsHtml}
+    <div class="unavailable-note">
+      ⚠️ Non disponible via l'API Instagram pour un compte tiers, quelle que soit la marque : répartition homme/femme de l'audience,
+      répartition géographique de l'audience, score d'authenticité automatisé. Pour un vrai check anti-fake-followers, gratuit mais
+      manuel : ${fakeFollowerCheckUrl ? `<a href="${escapeHtml(fakeFollowerCheckUrl)}" target="_blank" rel="noopener">HypeAuditor ↗</a>` : 'renseigne un handle Instagram pour avoir le lien'}.
+    </div>
+    ${postsHtml}
+  `;
+  document.getElementById('pdCloseBtn').onclick = closeProfileDetailModal;
+  document.getElementById('profileDetailModal').classList.add('open');
+}
+function closeProfileDetailModal() {
+  document.getElementById('profileDetailModal').classList.remove('open');
+}
+
+// ---------- Édition manuelle du profil influence (correctif 2026-09-15) ----------
+function openEditProfileModal(acc) {
+  document.getElementById('epInstagramUrl').value = acc.instagram_url || '';
+  document.getElementById('epProfilePictureUrl').value = acc.profile_picture_url || '';
+  document.getElementById('epFollowerCount').value = acc.follower_count ?? '';
+  document.getElementById('epEngagement').value = acc.engagement_observed ?? '';
+  document.getElementById('epEmail').value = acc.email || '';
+  document.getElementById('epAge').value = acc.age ?? '';
+  document.getElementById('epSavedStoryUrl').value = acc.saved_story_url || '';
+  document.getElementById('epTags').value = (Array.isArray(acc.frequent_tags) ? acc.frequent_tags : []).join(', ');
+  document.getElementById('editProfileModal').dataset.accountId = acc.id;
+  document.getElementById('editProfileModal').classList.add('open');
+}
+function closeEditProfileModal() {
+  document.getElementById('editProfileModal').classList.remove('open');
+}
+async function saveProfileEdits() {
+  const accountId = document.getElementById('editProfileModal').dataset.accountId;
+  const followerRaw = document.getElementById('epFollowerCount').value.trim();
+  const engagementRaw = document.getElementById('epEngagement').value.trim();
+  const ageRaw = document.getElementById('epAge').value.trim();
+  const tagsRaw = document.getElementById('epTags').value.trim();
+  const payload = {
+    instagram_url: document.getElementById('epInstagramUrl').value.trim() || null,
+    profile_picture_url: document.getElementById('epProfilePictureUrl').value.trim() || null,
+    follower_count: followerRaw ? parseInt(followerRaw, 10) : null,
+    engagement_observed: engagementRaw ? parseFloat(engagementRaw) : null,
+    email: document.getElementById('epEmail').value.trim() || null,
+    age: ageRaw ? parseInt(ageRaw, 10) : null,
+    saved_story_url: document.getElementById('epSavedStoryUrl').value.trim() || null,
+    frequent_tags: tagsRaw ? tagsRaw.split(',').map((s) => s.trim()).filter(Boolean) : [],
+  };
+  try {
+    await api('/api/profiles/' + accountId, { method: 'PATCH', body: payload });
+    closeEditProfileModal();
+    if (state.selectedTicket && state.selectedTicket.influence_relation_id) {
+      await loadLinkedProfile(state.selectedTicket.influence_relation_id);
+    }
+    toast('Profil mis à jour.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function syncInfluenceProfile(accountId, btn) {
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Synchro…';
+  try {
+    await api('/api/profiles/' + accountId + '/sync-business', { method: 'POST' });
+    if (state.selectedTicket && state.selectedTicket.influence_relation_id) {
+      await loadLinkedProfile(state.selectedTicket.influence_relation_id);
+    }
+    toast('Profil synchronisé depuis Instagram.');
+  } catch (err) {
+    if (err.message && err.message.includes('facebook_not_connected')) {
+      toast('Connecte d\'abord Facebook pour cette marque (bouton "🔗 Connecter Facebook").', true);
+    } else {
+      // Correctif 2026-09-15 (4e passage) : le message d'erreur générique
+      // ("meta_api_error") ne suffisait pas à diagnostiquer quoi que ce
+      // soit — on affiche maintenant aussi le détail renvoyé par l'API
+      // Meta (err.payload.detail, posé par sync-business.js) quand il est
+      // présent, pour voir tout de suite la vraie cause (permission
+      // manquante, compte non éligible à Business Discovery, etc.).
+      const detail = err.payload && err.payload.detail
+        ? (typeof err.payload.detail === 'string' ? err.payload.detail : JSON.stringify(err.payload.detail))
+        : '';
+      toast('Erreur de synchro : ' + err.message + (detail ? ' — ' + detail : ''), true);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function toggleInfluenceSearch() {
+  document.getElementById('influenceSearch').classList.toggle('open');
+}
+
+async function searchProfilesForTicket(q) {
+  const resultsEl = document.getElementById('influenceResults');
+  if (!q) { resultsEl.innerHTML = ''; return; }
+  resultsEl.innerHTML = '<div class="empty">Recherche…</div>';
+  try {
+    const data = await api('/api/profiles?q=' + encodeURIComponent(q));
+    const profiles = data.profiles || [];
+    if (profiles.length === 0) {
+      resultsEl.innerHTML = '<div class="empty">Aucun résultat.</div>';
+      return;
+    }
+    resultsEl.innerHTML = '';
+    profiles.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'influence-result';
+      row.innerHTML = `
+        <span>${escapeHtml(p.account.display_name)}${p.account.instagram_handle ? ' · @' + escapeHtml(p.account.instagram_handle) : ''}</span>
+        <button class="btn" style="padding:3px 9px;font-size:11.5px;">Lier</button>
+      `;
+      row.querySelector('button').onclick = () => patchTicket({ influence_relation_id: p.relation.id }).then(() => {
+        state.linkedProfile = p;
+        document.getElementById('influenceSearch').classList.remove('open');
+      });
+      resultsEl.appendChild(row);
+    });
+  } catch (err) {
+    resultsEl.innerHTML = '<div class="empty">Erreur : ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+async function patchTicket(fields) {
+  try {
+    const data = await api('/api/tickets/' + state.selectedTicket.id, { method: 'PATCH', body: fields });
+    state.selectedTicket = data.ticket;
+    if ('influence_relation_id' in fields) {
+      if (fields.influence_relation_id) {
+        // linkedProfile déjà posé par l'appelant dans le cas "lier depuis la recherche"
+      } else {
+        state.linkedProfile = null;
+      }
+      renderInfluenceBox();
+    }
+    renderTicketList();
+    toast('Ticket mis à jour.');
+    return data;
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+    throw err;
+  }
+}
+
+// ---------- Archivage / suppression d'un ticket ----------
+async function toggleArchiveTicket() {
+  const t = state.selectedTicket;
+  if (!t) return;
+  const archiving = !t.archived_at;
+  try {
+    await patchTicket({ archived: archiving });
+    await loadTickets();
+    // Une fois archivé (ou désarchivé hors du mode "Archivés"), le ticket
+    // sort de la vue courante — on referme le détail plutôt que de laisser
+    // un panneau ouvert sur un ticket qui n'est plus dans la liste.
+    if (archiving || state.showArchived) {
+      state.selectedTicket = null;
+      document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+    }
+  } catch (err) {
+    // déjà notifié par patchTicket
+  }
+}
+
+async function deleteTicketConfirm() {
+  const t = state.selectedTicket;
+  if (!t) return;
+  const name = t.contact_name || t.contact_handle || t.contact_email || 'ce ticket';
+  const typed = window.prompt(
+    `Suppression définitive et IRRÉVERSIBLE de « ${name} » (le ticket et tous ses messages seront effacés).\nTape SUPPRIMER pour confirmer :`
+  );
+  if (typed !== 'SUPPRIMER') return;
+  try {
+    await api('/api/tickets/' + t.id, { method: 'DELETE' });
+    state.selectedTicket = null;
+    document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+    await loadTickets();
+    toast('Ticket supprimé définitivement.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// ---------- Fil de messages ----------
+// Correctif 2026-09-14 (mise en forme "messagerie normale") : les messages
+// consécutifs d'un même sens (inbound/outbound) sont regroupés visuellement
+// — bulles collées, angle de raccord aplati (voir CSS .grouped-top/-bottom)
+// — et le bandeau meta (statut + heure) n'est affiché que sur le dernier
+// message d'un groupe, sauf s'il porte une erreur ou nécessite une action
+// (brouillon à valider, message validé à envoyer, envoi en échec) : ces
+// cas-là restent toujours visibles, même au milieu d'un groupe. Un message
+// "reçu" (inbound) n'affiche plus de pastille de statut — l'information
+// n'apporte rien face à un simple message reçu, contrairement à un sortant
+// (draft/validated/sent/rejected) qui reste informatif.
+// Correctif 2026-09-15 (compacité + tri) : un corps de message copié-collé
+// (mail, DM Instagram…) arrive parfois avec plusieurs lignes vides
+// consécutives — chacune ajoute une ligne de hauteur dans la bulle
+// (white-space:pre-wrap), d'où de grands blocs de vide constatés dans le
+// fil. On ne modifie jamais le texte enregistré en base : on le nettoie
+// seulement à l'affichage (espaces de début/fin retirés, lignes vides
+// consécutives réduites à une seule).
+function normalizeBodyForDisplay(body) {
+  if (!body) return '';
+  // Correctif 2026-09-15 (3e passage) : les deux tentatives précédentes
+  // (fusion des \n consécutifs, puis nettoyage des espaces de fin de ligne)
+  // ne suffisaient toujours pas. La vraie cause : un message peut arriver
+  // avec des fins de ligne Windows (\r\n). Dans "\r\n\r\n", les deux \n ne
+  // sont PAS directement consécutifs (il y a un \r entre eux), donc
+  // /\n{2,}/ ne les fusionnait jamais — toutes les "lignes vides" de ce
+  // type traversaient tous les nettoyages précédents sans être touchées.
+  // On normalise maintenant d'abord toute fin de ligne (\r\n ou \r seul)
+  // vers \n, puis toute ligne qui ne contient QUE des espaces est vidée
+  // entièrement (elle ne compte plus comme une ligne réelle), avant de
+  // fusionner les sauts de ligne consécutifs.
+  return body
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => (line.trim() === '' ? '' : line.replace(/\s+$/g, '')))
+    .join('\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
+// Tri du fil : par défaut chronologique (plus ancien en haut, comme avant),
+// mais réglable par Luc via le sélecteur "Tri des messages" du header —
+// state.threadSortOrder, persistant tant que l'appli reste ouverte.
+function renderThread() {
+  const threadEl = document.getElementById('thread');
+  if (state.messages.length === 0) {
+    threadEl.innerHTML = '<div class="empty">Aucun message pour l\'instant.</div>';
+    return;
+  }
+  threadEl.innerHTML = '';
+  const sorted = state.messages.slice().sort((a, b) => {
+    const ta = new Date(a.sent_at || a.created_at || 0).getTime();
+    const tb = new Date(b.sent_at || b.created_at || 0).getTime();
+    return state.threadSortOrder === 'desc' ? tb - ta : ta - tb;
+  });
+
+  // Correctif 2026-09-15 (suite) : un message sans texte utile (vide, ou
+  // réduit à rien après normalizeBodyForDisplay) et sans pièce jointe ne
+  // laisse plus de bulle quasi vide dans le fil — il n'apporte rien de
+  // visible et ne faisait qu'ajouter du vide. Ses infos (date, statut,
+  // action à mener) sont rares dans ce cas et, si elles existaient, un
+  // brouillon vide n'a de toute façon rien à valider ; on ne perd donc
+  // aucune action réelle en le masquant.
+  const msgs = sorted
+    .map((m) => ({ m, cleanBody: normalizeBodyForDisplay(m.body), attachments: Array.isArray(m.attachments) ? m.attachments : [] }))
+    .filter(({ cleanBody, attachments }) => cleanBody || attachments.length > 0);
+
+  msgs.forEach(({ m, cleanBody, attachments }, idx) => {
+    const prev = msgs[idx - 1] && msgs[idx - 1].m;
+    const next = msgs[idx + 1] && msgs[idx + 1].m;
+    const groupedTop = !!(prev && prev.direction === m.direction);
+    const groupedBottom = !!(next && next.direction === m.direction);
+
+    const div = document.createElement('div');
+    div.className = 'msg ' + m.direction
+      + (groupedTop ? ' grouped-top' : '')
+      + (groupedBottom ? ' grouped-bottom' : '');
+
+    let actions = '';
+    const needsAction = m.direction === 'outbound' && (m.status === 'draft' || m.status === 'validated');
+    if (m.direction === 'outbound' && m.status === 'draft') {
+      actions = `<div class="actions"><button class="btn" data-action="validate" data-id="${m.id}">Valider</button></div>`;
+    } else if (m.direction === 'outbound' && m.status === 'validated') {
+      actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button></div>`;
+    }
+
+    const attachmentsHtml = attachments.length === 0 ? '' : `<div class="attachments">${attachments.map((a) => {
+      if (a.type === 'image') return `<img src="${escapeHtml(a.url)}" alt="pièce jointe" onclick="window.open('${escapeHtml(a.url)}','_blank')" />`;
+      if (a.type === 'video') return `<video controls src="${escapeHtml(a.url)}"></video>`;
+      return `<a class="file-attachment" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">📎 Pièce jointe</a>`;
+    }).join('')}</div>`;
+
+    const showMeta = !groupedBottom || !!m.error || needsAction;
+    const statusPillHtml = m.direction === 'outbound'
+      ? `<span class="status-pill" data-s="${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>`
+      : '';
+    // Correctif 2026-09-15 : afficher la date d'ENVOI réel (sent_at, posée
+    // par api/tickets/:id/messages/:messageId/send.js au moment où le
+    // message part vraiment), pas la date de création du brouillon
+    // (created_at) — un brouillon peut attendre longtemps en file de
+    // validation avant d'être envoyé. Pour un message importé Instagram
+    // (entrant, ou sortant déjà envoyé ailleurs), sent_at n'est jamais posé
+    // : created_at porte déjà l'horodatage réel fourni par Meta
+    // (created_time), donc le repli sur created_at reste correct dans ce cas.
+    const displayDate = m.sent_at || m.created_at;
+    const metaHtml = showMeta ? `
+      <div class="meta">
+        ${statusPillHtml}
+        <span>${fmtDate(displayDate)}</span>
+        ${m.error ? '<span style="color:var(--red);">· ' + escapeHtml(m.error) + '</span>' : ''}
+      </div>
+    ` : '';
+
+    div.innerHTML = `
+      ${cleanBody ? `<div>${escapeHtml(cleanBody)}</div>` : ''}
+      ${attachmentsHtml}
+      ${metaHtml}
+      ${actions}
+    `;
+    threadEl.appendChild(div);
+  });
+  // En tri "plus récents en premier", le début du fil (haut) est déjà le
+  // plus pertinent — pas de défilement vers le bas comme en tri
+  // chronologique classique.
+  threadEl.scrollTop = state.threadSortOrder === 'desc' ? 0 : threadEl.scrollHeight;
+
+  threadEl.querySelectorAll('[data-action="validate"]').forEach((btn) => {
+    btn.onclick = () => validateMessage(btn.dataset.id);
+  });
+  threadEl.querySelectorAll('[data-action="send"]').forEach((btn) => {
+    btn.onclick = () => sendMessage(btn.dataset.id);
+  });
+}
+
+// ---------- Pièce jointe sortante (correctif 2026-09-15) ----------
+// Ex. : joindre une étiquette de transport (PDF) ou une photo à une réponse.
+// Upload immédiat vers le stockage (Vercel Blob, via /api/uploads/attachment)
+// dès que le fichier est choisi ; l'URL obtenue est ensuite envoyée avec le
+// message (brouillon ou envoi direct), comme une pièce jointe entrante.
+const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024; // 4 Mo — voir limite côté api/uploads/attachment.js
+
+function renderAttachPreview() {
+  const box = document.getElementById('attachPreviewBox');
+  if (!box) return;
+  const a = state.pendingAttachment;
+  if (!a) { box.innerHTML = ''; return; }
+  const icon = a.type === 'image' ? '🖼️' : a.type === 'video' ? '🎞️' : '📎';
+  box.innerHTML = `
+    <div class="attach-preview">
+      <span>${icon} ${escapeHtml(a.filename || 'pièce jointe')}</span>
+      <span class="remove" id="removeAttachBtn" title="Retirer">✕</span>
+    </div>
+  `;
+  document.getElementById('removeAttachBtn').onclick = () => {
+    state.pendingAttachment = null;
+    renderAttachPreview();
+  };
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]); // enlève le préfixe data:...;base64,
+    reader.onerror = () => reject(new Error('read_failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleAttachmentFileSelected(file) {
+  const input = document.getElementById('attachmentFileInput');
+  if (!file) return;
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    toast('Fichier trop volumineux (max 4 Mo).', true);
+    if (input) input.value = '';
+    return;
+  }
+  const attachBtn = document.getElementById('attachBtn');
+  const originalLabel = attachBtn.textContent;
+  attachBtn.disabled = true;
+  attachBtn.textContent = '…';
+  try {
+    const content_base64 = await fileToBase64(file);
+    const result = await api('/api/uploads/attachment', {
+      method: 'POST',
+      body: { filename: file.name, content_type: file.type, content_base64 },
+    });
+    state.pendingAttachment = { type: result.type, url: result.url, filename: file.name };
+    renderAttachPreview();
+    toast('Pièce jointe prête — elle partira avec le prochain message.');
+  } catch (err) {
+    toast('Erreur pièce jointe : ' + err.message, true);
+  } finally {
+    attachBtn.disabled = false;
+    attachBtn.textContent = originalLabel;
+    if (input) input.value = '';
+  }
+}
+
+async function createDraft() {
+  const input = document.getElementById('composerInput');
+  const body = input.value.trim();
+  const attachments = state.pendingAttachment ? [state.pendingAttachment] : [];
+  if (!body && attachments.length === 0) return;
+  try {
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
+      method: 'POST',
+      body: { direction: 'outbound', body, attachments },
+    });
+    input.value = '';
+    state.pendingAttachment = null;
+    renderAttachPreview();
+    await refreshSelectedTicket();
+    toast('Brouillon enregistré.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// Correctif 2026-09-14 : "Envoyer directement" — pour une réponse déjà
+// écrite à la main, évite l'aller-retour par la file de validation. Enchaîne
+// création du brouillon -> validation -> envoi avec un seul nom demandé. Si
+// l'envoi échoue à une étape (hors fenêtre 24h, canal Instagram pas
+// configuré, erreur Meta…), le brouillon déjà créé reste en place : rien
+// n'est perdu, il suffit de le valider et l'envoyer depuis la file de
+// validation comme n'importe quel autre brouillon.
+async function sendDirectly() {
+  const input = document.getElementById('composerInput');
+  const body = input.value.trim();
+  const attachments = state.pendingAttachment ? [state.pendingAttachment] : [];
+  if (!body && attachments.length === 0) return;
+  const approvedBy = window.prompt('Envoyer ce message directement en tant que :', 'Luc');
+  if (!approvedBy) return;
+
+  const btn = document.getElementById('sendDirectBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Envoi…';
+  let messageId = null;
+  try {
+    const draftData = await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
+      method: 'POST',
+      body: { direction: 'outbound', body, attachments },
+    });
+    messageId = draftData.message.id;
+
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/validate', {
+      method: 'PATCH',
+      body: { validated_by: approvedBy },
+    });
+
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/send', {
+      method: 'POST',
+      body: { idempotency_key: crypto.randomUUID(), approved_by: approvedBy },
+    });
+
+    input.value = '';
+    state.pendingAttachment = null;
+    renderAttachPreview();
+    await refreshSelectedTicket();
+    toast('Message envoyé.');
+  } catch (err) {
+    await refreshSelectedTicket();
+    if (messageId) {
+      toast('Message enregistré comme brouillon, mais l\'envoi a échoué : ' + err.message + ' — tu peux le valider et l\'envoyer depuis la file de validation.', true);
+    } else {
+      toast('Erreur : ' + err.message, true);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+async function validateMessage(messageId) {
+  const validatedBy = window.prompt('Valider ce brouillon en tant que :', 'Luc');
+  if (!validatedBy) return;
+  try {
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/validate', {
+      method: 'PATCH',
+      body: { validated_by: validatedBy },
+    });
+    await refreshSelectedTicket();
+    toast('Message validé.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function sendMessage(messageId) {
+  // Le back-end exige un approbateur explicite (approved_by) en plus de la
+  // clé d'idempotence — corrigé ici : cet appel échouait systématiquement en
+  // 400 (approved_by manquant) avant ce correctif, masqué jusqu'ici par le
+  // fait que l'Instagram n'était de toute façon pas encore configuré.
+  const approvedBy = window.prompt('Envoyer ce message en tant que :', 'Luc');
+  if (!approvedBy) return;
+  try {
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/send', {
+      method: 'POST',
+      body: { idempotency_key: crypto.randomUUID(), approved_by: approvedBy },
+    });
+    await refreshSelectedTicket();
+    toast('Message envoyé.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+    await refreshSelectedTicket();
+  }
+}
+
+// ---------- Création de profil influence depuis un ticket ----------
+function openCreateProfileModal() {
+  const displayName = window.prompt('Nom affiché du profil influence :');
+  if (!displayName) return;
+  const igHandle = window.prompt('Handle Instagram (sans @, optionnel) :') || '';
+  createProfileAndLink(displayName, igHandle);
+}
+
+async function createProfileAndLink(displayName, igHandle) {
+  try {
+    const data = await api('/api/profiles', {
+      method: 'POST',
+      body: { display_name: displayName, instagram_handle: igHandle || undefined },
+    });
+    state.linkedProfile = data;
+    await patchTicket({ influence_relation_id: data.relation.id });
+    document.getElementById('influenceSearch').classList.remove('open');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// ---------- Nouveau ticket ----------
+function openNewTicketModal() {
+  const catSelect = document.getElementById('ntCategory');
+  catSelect.innerHTML = state.categories.map((c) => `<option value="${escapeHtml(c.label)}" ${c.is_default ? 'selected' : ''}>${escapeHtml(c.label)}</option>`).join('');
+  document.getElementById('newTicketModal').classList.add('open');
+}
+function closeNewTicketModal() {
+  document.getElementById('newTicketModal').classList.remove('open');
+  ['ntName','ntHandle','ntEmail','ntOrder','ntBody'].forEach((id) => { document.getElementById(id).value = ''; });
+}
+
+async function createTicketFromModal() {
+  const channel = document.getElementById('ntChannel').value;
+  const category = document.getElementById('ntCategory').value;
+  const contact_name = document.getElementById('ntName').value.trim();
+  const contact_handle = document.getElementById('ntHandle').value.trim();
+  const contact_email = document.getElementById('ntEmail').value.trim();
+  const related_order_number = document.getElementById('ntOrder').value.trim();
+  const initialBody = document.getElementById('ntBody').value.trim();
+
+  try {
+    const data = await api('/api/tickets', {
+      method: 'POST',
+      body: {
+        channel, category,
+        contact_name: contact_name || undefined,
+        contact_handle: contact_handle || undefined,
+        contact_email: contact_email || undefined,
+        related_order_number: related_order_number || undefined,
+      },
+    });
+    const ticket = data.ticket;
+    if (initialBody) {
+      await api('/api/tickets/' + ticket.id + '/messages', {
+        method: 'POST',
+        body: { direction: 'inbound', body: initialBody },
+      });
+    }
+    closeNewTicketModal();
+    await loadTickets();
+    selectTicket(ticket.id);
+    toast('Ticket créé.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+// ---------- Paramètres : statuts / catégories éditables ----------
+function renderOptionsList(containerId, options, onChange) {
+  const el = document.getElementById(containerId);
+  if (options.length === 0) {
+    el.innerHTML = '<div class="empty">Aucune valeur.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  options.forEach((opt, idx) => {
+    const row = document.createElement('div');
+    row.className = 'option-row';
+    row.innerHTML = `
+      <span class="opt-arrows">
+        <button class="opt-arrow" ${idx === 0 ? 'disabled' : ''} data-dir="up" title="Monter">▲</button>
+        <button class="opt-arrow" ${idx === options.length - 1 ? 'disabled' : ''} data-dir="down" title="Descendre">▼</button>
+      </span>
+      <span class="opt-label" title="${escapeHtml(opt.label)}">${escapeHtml(opt.label)}</span>
+      ${opt.is_default
+        ? '<span class="badge opt-default-pill">par défaut</span>'
+        : '<button class="btn opt-default-btn" title="Définir par défaut">★</button>'}
+      <button class="btn opt-rename-btn" title="Renommer">✎</button>
+      <button class="btn btn-danger opt-delete-btn" title="Supprimer">🗑</button>
+    `;
+    row.querySelector('[data-dir="up"]').onclick = () => onChange(opt.id, { move: 'up' });
+    row.querySelector('[data-dir="down"]').onclick = () => onChange(opt.id, { move: 'down' });
+    const defaultBtn = row.querySelector('.opt-default-btn');
+    if (defaultBtn) defaultBtn.onclick = () => onChange(opt.id, { set_default: true });
+    row.querySelector('.opt-rename-btn').onclick = () => {
+      const newLabel = window.prompt('Nouveau nom :', opt.label);
+      if (newLabel && newLabel.trim() && newLabel.trim() !== opt.label) onChange(opt.id, { label: newLabel.trim() });
+    };
+    row.querySelector('.opt-delete-btn').onclick = () => {
+      if (window.confirm(`Supprimer « ${opt.label} » ?`)) onChange(opt.id, { _delete: true });
+    };
+    el.appendChild(row);
+  });
+}
+
+function renderSettingsModal() {
+  renderOptionsList('statusOptionsList', state.statuses, (id, payload) => patchOption(id, payload));
+  renderOptionsList('categoryOptionsList', state.categories, (id, payload) => patchOption(id, payload));
+}
+
+async function afterTaxonomyChange() {
+  await loadTaxonomy();
+  renderSettingsModal();
+  renderNav();
+  if (state.selectedTicket) await refreshSelectedTicket();
+  await loadTickets();
+}
+
+async function patchOption(id, payload) {
+  try {
+    if (payload._delete) {
+      await api('/api/settings/options/' + id, { method: 'DELETE' });
+    } else {
+      await api('/api/settings/options/' + id, { method: 'PATCH', body: payload });
+    }
+    await afterTaxonomyChange();
+    toast('Mis à jour.');
+  } catch (err) {
+    const code = err.payload && err.payload.error;
+    if (code === 'in_use') {
+      const count = err.payload.count;
+      toast(`Impossible de supprimer : ${count} ticket${count > 1 ? 's' : ''} utilise${count > 1 ? 'nt' : ''} encore cette valeur.`, true);
+    } else if (code === 'cannot_delete_default') {
+      toast('Choisis une autre valeur par défaut avant de supprimer celle-ci.', true);
+    } else if (code === 'already_exists') {
+      toast('Ce nom existe déjà.', true);
+    } else {
+      toast('Erreur : ' + err.message, true);
+    }
+  }
+}
+
+async function addOption(field, inputId) {
+  const input = document.getElementById(inputId);
+  const label = input.value.trim();
+  if (!label) return;
+  try {
+    await api('/api/settings/options', { method: 'POST', body: { field, label } });
+    input.value = '';
+    await afterTaxonomyChange();
+    toast('Ajouté.');
+  } catch (err) {
+    const code = err.payload && err.payload.error;
+    if (code === 'already_exists') toast('Ce nom existe déjà.', true);
+    else toast('Erreur : ' + err.message, true);
+  }
+}
+
+function openSettingsModal() {
+  document.getElementById('settingsTenantLabel').textContent = state.tenant === 'bbp' ? 'BBP' : 'Misü';
+  renderSettingsModal();
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettingsModal() {
+  document.getElementById('settingsModal').classList.remove('open');
+}
+
+// ---------- File de validation (traitement en lot) ----------
+function resetQueueSelection() {
+  state.queue.selected = new Set();
+  state.queue.edited = new Map();
+}
+
+async function loadQueue() {
+  const listEl = document.getElementById('queueList');
+  listEl.innerHTML = '<div class="empty">Chargement…</div>';
+  document.getElementById('queueSummary').innerHTML = '';
+  try {
+    const data = await api('/api/tickets/queue');
+    state.queue.items = data.items || [];
+    renderQueue();
+  } catch (err) {
+    listEl.innerHTML = '<div class="empty">Erreur de chargement : ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function alertLabel(code) {
+  if (code === 'hors_fenetre_24h') return { text: 'Hors fenêtre 24h — sera exclu du lot', bad: true };
+  if (code === 'canal_non_implemente') return { text: 'Canal pas encore branché — non envoyable ici', bad: true };
+  return { text: code, bad: false };
+}
+
+function renderQueueTabs() {
+  const items = state.queue.items;
+  const nMessagerie = items.filter((i) => i.group === 'messagerie').length;
+  const nInfluence = items.filter((i) => i.group === 'influence').length;
+  document.getElementById('qCountMessagerie').textContent = '(' + nMessagerie + ')';
+  document.getElementById('qCountInfluence').textContent = '(' + nInfluence + ')';
+  document.querySelectorAll('#queueTabs button').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.group === state.queue.group);
+  });
+}
+
+function renderQueue() {
+  renderQueueTabs();
+  const listEl = document.getElementById('queueList');
+  const items = state.queue.items.filter((i) => i.group === state.queue.group);
+
+  if (items.length === 0) {
+    listEl.innerHTML = '<div class="empty">Aucun brouillon en attente dans cet onglet.</div>';
+  } else {
+    listEl.innerHTML = '';
+    items.forEach((it) => {
+      const name = it.contact_name || it.contact_handle || it.contact_email || '(sans nom)';
+      const currentText = state.queue.edited.has(it.message_id) ? state.queue.edited.get(it.message_id) : it.message_body;
+      const isEdited = state.queue.edited.has(it.message_id);
+      const checked = state.queue.selected.has(it.message_id);
+
+      const card = document.createElement('div');
+      card.className = 'queue-card' + (it.sendable ? '' : ' unsendable');
+      card.innerHTML = `
+        <div class="qc-check">
+          <input type="checkbox" data-id="${it.message_id}" ${checked ? 'checked' : ''} ${it.channel !== 'instagram' ? 'disabled' : ''} />
+        </div>
+        <div class="qc-body">
+          <div class="qc-top">
+            <div class="qc-name">${escapeHtml(name)}</div>
+            <div class="qc-badges">
+              <span class="badge badge-channel">${escapeHtml(it.channel)}</span>
+              <span class="badge badge-cat">${escapeHtml(it.category)}</span>
+              ${it.category === 'Influence' && it.score_total != null ? `<span class="badge badge-score">score ${escapeHtml(it.score_total)}/100${it.relationship_status ? ' · ' + escapeHtml(it.relationship_status) : ''}</span>` : ''}
+              ${it.related_order_number ? `<span class="badge badge-status">cmd ${escapeHtml(it.related_order_number)}</span>` : ''}
+            </div>
+          </div>
+          ${it.last_inbound_body ? `<div class="qc-context">Dernier message reçu : "${escapeHtml(it.last_inbound_body)}"</div>` : ''}
+          <textarea data-id="${it.message_id}" class="${isEdited ? 'edited' : ''}">${escapeHtml(currentText)}</textarea>
+          <div class="qc-alerts">
+            ${it.alerts.map((a) => { const al = alertLabel(a); return `<span class="badge badge-alert${al.bad ? ' bad' : ''}">${escapeHtml(al.text)}</span>`; }).join('')}
+          </div>
+        </div>
+      `;
+      card.querySelector('input[type="checkbox"]').onchange = (e) => {
+        if (e.target.checked) state.queue.selected.add(it.message_id);
+        else state.queue.selected.delete(it.message_id);
+        updateQueueToolbar();
+      };
+      card.querySelector('textarea').oninput = (e) => {
+        if (e.target.value === it.message_body) state.queue.edited.delete(it.message_id);
+        else state.queue.edited.set(it.message_id, e.target.value);
+        e.target.classList.toggle('edited', state.queue.edited.has(it.message_id));
+      };
+      listEl.appendChild(card);
+    });
+  }
+  updateQueueToolbar();
+}
+
+function updateQueueToolbar() {
+  const n = state.queue.selected.size;
+  document.getElementById('queueProcessBtn').disabled = n === 0;
+  document.getElementById('queueSelectedHint').textContent = n > 0 ? `${n} sélectionné${n > 1 ? 's' : ''}` : '';
+}
+
+async function processQueueSelection() {
+  const n = state.queue.selected.size;
+  if (n === 0) return;
+  const approvedBy = window.prompt(`Valider et envoyer ces ${n} message(s) en tant que :`, 'Luc');
+  if (!approvedBy) return;
+
+  const byId = new Map(state.queue.items.map((it) => [it.message_id, it]));
+  const items = Array.from(state.queue.selected).map((messageId) => {
+    const it = byId.get(messageId);
+    const body = state.queue.edited.has(messageId) ? state.queue.edited.get(messageId) : undefined;
+    return {
+      message_id: messageId,
+      ticket_id: it.ticket_id,
+      body,
+      idempotency_key: crypto.randomUUID(),
+    };
+  });
+
+  const btn = document.getElementById('queueProcessBtn');
+  btn.disabled = true;
+  btn.textContent = 'Traitement en cours…';
+  try {
+    const data = await api('/api/tickets/batch-process', {
+      method: 'POST',
+      body: { items, approved_by: approvedBy },
+    });
+    renderQueueSummary(data.summary, byId);
+    resetQueueSelection();
+    await loadQueue();
+    toast(`Lot traité : ${data.summary.sent} envoyé(s), ${data.summary.errors.length} erreur(s), ${data.summary.excluded.length} exclu(s).`, data.summary.errors.length > 0);
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  } finally {
+    btn.textContent = 'Traiter la sélection';
+  }
+}
+
+function excludedReasonLabel(reason) {
+  if (reason === 'outside_24h_response_window') return 'hors fenêtre de réponse 24h';
+  if (reason && reason.startsWith('channel_not_implemented')) return 'canal pas encore branché';
+  return reason;
+}
+
+function renderQueueSummary(summary, byId) {
+  const el = document.getElementById('queueSummary');
+  if (!summary) { el.innerHTML = ''; return; }
+  const lines = [`<div class="qs-line"><strong>${summary.sent}</strong> envoyé${summary.sent > 1 ? 's' : ''}</div>`];
+  if (summary.excluded.length > 0) {
+    lines.push(`<div class="qs-line">${summary.excluded.length} exclu(s) automatiquement : ` +
+      summary.excluded.map((e) => {
+        const it = byId.get(e.message_id);
+        const name = it ? (it.contact_name || it.contact_handle || it.contact_email || 'sans nom') : e.ticket_id;
+        return `${escapeHtml(name)} (${escapeHtml(excludedReasonLabel(e.reason))})`;
+      }).join(', ') + '</div>');
+  }
+  if (summary.errors.length > 0) {
+    lines.push(`<div class="qs-line qs-err">${summary.errors.length} en erreur — à retraiter individuellement : ` +
+      summary.errors.map((e) => {
+        const it = byId.get(e.message_id);
+        const name = it ? (it.contact_name || it.contact_handle || it.contact_email || 'sans nom') : e.ticket_id;
+        return `${escapeHtml(name)} (${escapeHtml(e.reason)})`;
+      }).join(', ') + '</div>');
+  }
+  el.innerHTML = `<div class="queue-summary">${lines.join('')}</div>`;
+}
+
+function initQueueTabs() {
+  document.querySelectorAll('#queueTabs button').forEach((btn) => {
+    btn.onclick = () => { state.queue.group = btn.dataset.group; renderQueue(); };
+  });
+  document.getElementById('queueProcessBtn').onclick = processQueueSelection;
+}
+
+// ---------- Sondage Instagram (connecteur lecture, phase B) ----------
+// Correctif 2026-09-15 : ce sondage peut prendre du temps (il interroge
+// Instagram conversation par conversation, cote serveur) -- sans retour
+// visuel pendant l'attente, le bouton donnait l'impression d'etre fige.
+// On affiche desormais le temps ecoule en secondes pendant l'attente, et
+// on abandonne proprement (message clair, bouton reactive) si ca depasse
+// SYNC_TIMEOUT_MS au lieu de rester bloque indefiniment.
+const SYNC_TIMEOUT_MS = 100000;
+async function syncInstagram() {
+  const btn = document.getElementById('syncInstagramBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  const startedAt = Date.now();
+  btn.textContent = 'Actualisation… (0s)';
+  const tickInterval = setInterval(() => {
+    btn.textContent = `Actualisation… (${Math.round((Date.now() - startedAt) / 1000)}s)`;
+  }, 1000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  try {
+    const data = await api('/api/tickets/sync-instagram', { method: 'POST', signal: controller.signal });
+    const parts = [];
+    if (data.tickets_created) parts.push(`${data.tickets_created} nouveau${data.tickets_created > 1 ? 'x' : ''} ticket${data.tickets_created > 1 ? 's' : ''}`);
+    if (data.messages_created) parts.push(`${data.messages_created} nouveau${data.messages_created > 1 ? 'x' : ''} message${data.messages_created > 1 ? 's' : ''}`);
+    const summaryText = parts.length > 0 ? parts.join(', ') : 'rien de nouveau';
+    toast(`Instagram actualisé : ${summaryText}.`, (data.errors || []).length > 0);
+    if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      toast('Ça prend plus de temps que prévu (plus d\'une minute) — réessaie dans un instant ; si ça persiste, préviens-moi.', true);
+    } else if (err.payload && err.payload.error === 'instagram_not_configured_for_tenant') {
+      toast('Instagram n\'est pas encore configuré pour cette marque.', true);
+    } else {
+      toast('Erreur : ' + err.message, true);
+    }
+  } finally {
+    clearInterval(tickInterval);
+    clearTimeout(timeoutId);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+document.getElementById('syncInstagramBtn').onclick = syncInstagram;
+
+// Correctif 2026-09-15 (6e passage), demandé par Luc : bouton qui lie
+// automatiquement un profil influence (créé si besoin, à partir du handle
+// Instagram) à tous les tickets existants qui n'en ont pas encore — les
+// nouveaux tickets sont désormais liés automatiquement dès leur création
+// (voir sync-instagram.js), ce bouton sert surtout à rattraper l'existant.
+async function autoLinkInfluence() {
+  const btn = document.getElementById('autoLinkInfluenceBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Liaison…';
+  try {
+    const data = await api('/api/tickets/auto-link-influence', { method: 'POST' });
+    if (data.linked > 0) {
+      toast(`${data.linked} profil${data.linked > 1 ? 's' : ''} influence lié${data.linked > 1 ? 's' : ''} automatiquement.`);
+    } else {
+      toast('Rien à lier : tous les tickets Instagram ont déjà un profil influence.');
+    }
+    if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+document.getElementById('autoLinkInfluenceBtn').onclick = autoLinkInfluence;
+
+// Correctif 2026-09-15 (8e passage), demandé par Luc : "tout le monde était
+// lié sur Instagram, mais ça ne récupère pas les informations de tout le
+// monde" — jusqu'ici il fallait cliquer "🔄 Synchroniser" profil par profil
+// dans chaque ticket. Ce bouton synchronise tous les profils liés à la
+// marque active en un coup, avec un chrono affiché comme pour "Actualiser
+// Instagram" car ça peut prendre du temps selon le nombre de profils.
+const SYNC_ALL_TIMEOUT_MS = 180000;
+async function syncAllBusinessProfiles() {
+  const btn = document.getElementById('syncAllBusinessBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  const startedAt = Date.now();
+  btn.textContent = 'Synchro… (0s)';
+  const tickInterval = setInterval(() => {
+    btn.textContent = `Synchro… (${Math.round((Date.now() - startedAt) / 1000)}s)`;
+  }, 1000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYNC_ALL_TIMEOUT_MS);
+  try {
+    const data = await api('/api/profiles/sync-all-business', { method: 'POST', signal: controller.signal });
+    if (data.total === 0) {
+      toast('Aucun profil influence à synchroniser pour cette marque.');
+    } else {
+      const parts = [`${data.synced}/${data.total} profil${data.total > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}`];
+      if (data.failed > 0) parts.push(`${data.failed} en erreur`);
+      toast(parts.join(', ') + '.', data.failed > 0);
+      if (data.failed > 0) {
+        console.warn('Erreurs de synchro en masse :', data.errors);
+      }
+    }
+    if (state.selectedTicket) await refreshSelectedTicket();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      toast('Ça prend plus de temps que prévu — réessaie dans un instant ; si ça persiste, préviens-moi.', true);
+    } else if (err.payload && err.payload.error === 'facebook_not_connected') {
+      toast('Connecte d\'abord Facebook pour cette marque (bouton "🔗 Connecter Facebook").', true);
+    } else {
+      toast('Erreur : ' + err.message, true);
+    }
+  } finally {
+    clearInterval(tickInterval);
+    clearTimeout(timeoutId);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+document.getElementById('syncAllBusinessBtn').onclick = syncAllBusinessProfiles;
+
+// ---------- Bascule Boîte / File de validation ----------
+function setView(view) {
+  state.view = view;
+  document.getElementById('inboxView').style.display = view === 'inbox' ? 'grid' : 'none';
+  document.getElementById('queueView').style.display = view === 'queue' ? 'block' : 'none';
+  document.getElementById('searchWrap').style.display = view === 'inbox' ? 'block' : 'none';
+  document.querySelectorAll('#viewSwitch button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  if (view === 'queue') {
+    resetQueueSelection();
+    loadQueue();
+  }
+}
+
+// ---------- Bascule Boîte / Archivés ----------
+function toggleArchivedView() {
+  state.showArchived = !state.showArchived;
+  document.getElementById('archivedToggleBtn').classList.toggle('active', state.showArchived);
+  document.getElementById('archivedToggleBtn').textContent = state.showArchived ? '📥 Boîte' : '📦 Archivés';
+  state.selectedTicket = null;
+  document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+  loadTickets();
+}
+document.getElementById('archivedToggleBtn').onclick = toggleArchivedView;
+
+// ---------- Init ----------
+function initTenantSwitch() {
+  const buttons = document.querySelectorAll('#tenantSwitch button');
+  buttons.forEach((btn) => {
+    if (btn.dataset.tenant === state.tenant) btn.classList.add('active');
+    btn.onclick = async () => {
+      state.tenant = btn.dataset.tenant;
+      localStorage.setItem('msav_tenant', state.tenant);
+      buttons.forEach((b) => b.classList.toggle('active', b === btn));
+      state.selectedTicket = null;
+      state.category = '';
+      state.status = '';
+      resetQueueSelection();
+      document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+      await loadTaxonomy();
+      renderNav();
+      if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); }
+    };
+  });
+}
+
+function initViewSwitch() {
+  document.querySelectorAll('#viewSwitch button').forEach((btn) => {
+    btn.onclick = () => setView(btn.dataset.view);
+  });
+}
+
+document.getElementById('searchInput').oninput = debounce((e) => { state.q = e.target.value; loadTickets(); }, 350);
+document.getElementById('ticketSortSelect').value = state.ticketSortOrder;
+document.getElementById('ticketSortSelect').onchange = (e) => { state.ticketSortOrder = e.target.value; loadTickets(); };
+document.getElementById('newTicketBtn').onclick = openNewTicketModal;
+document.getElementById('ntCancel').onclick = closeNewTicketModal;
+document.getElementById('ntCreate').onclick = createTicketFromModal;
+document.getElementById('newTicketModal').addEventListener('click', (e) => {
+  if (e.target.id === 'newTicketModal') closeNewTicketModal();
+});
+document.getElementById('settingsBtn').onclick = openSettingsModal;
+document.getElementById('connectFacebookBtn').onclick = () => {
+  window.open('/api/profiles/facebook-login?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
+};
+document.getElementById('settingsCloseBtn').onclick = closeSettingsModal;
+document.getElementById('settingsModal').addEventListener('click', (e) => {
+  if (e.target.id === 'settingsModal') closeSettingsModal();
+});
+document.getElementById('epCancel').onclick = closeEditProfileModal;
+document.getElementById('epSave').onclick = saveProfileEdits;
+document.getElementById('editProfileModal').addEventListener('click', (e) => {
+  if (e.target.id === 'editProfileModal') closeEditProfileModal();
+});
+document.getElementById('scCancel').onclick = closeScoreModal;
+document.getElementById('scSave').onclick = saveScore;
+document.getElementById('scoreModal').addEventListener('click', (e) => {
+  if (e.target.id === 'scoreModal') closeScoreModal();
+});
+document.getElementById('profileDetailModal').addEventListener('click', (e) => {
+  if (e.target.id === 'profileDetailModal') closeProfileDetailModal();
+});
+Object.keys(SCORE_FIELD_MAX).forEach((id) => {
+  document.getElementById(id).addEventListener('input', updateScoreTotalPreview);
+});
+document.getElementById('addStatusBtn').onclick = () => addOption('status', 'newStatusInput');
+document.getElementById('addCategoryBtn').onclick = () => addOption('category', 'newCategoryInput');
+document.getElementById('newStatusInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addOption('status', 'newStatusInput'); });
+document.getElementById('newCategoryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addOption('category', 'newCategoryInput'); });
+
+async function init() {
+  initTenantSwitch();
+  initViewSwitch();
+  initQueueTabs();
+  await loadTaxonomy();
+  renderNav();
+  await loadTickets();
+}
+init();
+</script>
+</body>
+</html><!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Messagerie — BBP / Misü</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --border:#e3e6ea; --text:#1c2126; --muted:#6b7280;
+    --accent:#2563eb; --accent-bg:#eaf1ff; --green:#16a34a; --amber:#d97706; --red:#dc2626;
+    --radius:8px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--text);font-size:14px;}
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--panel);
+    border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;flex-wrap:wrap;}
+  header h1{font-size:15px;margin:0;font-weight:600;white-space:nowrap;}
+  .tenant-switch{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
+  .tenant-switch button{border:none;background:transparent;padding:5px 12px;border-radius:5px;
+    cursor:pointer;font-size:13px;color:var(--muted);}
+  .tenant-switch button.active{background:var(--accent);color:#fff;}
+  header .search{flex:1;min-width:160px;}
+  header input[type="text"]{width:100%;padding:7px 10px;border:1px solid var(--border);
+    border-radius:6px;font-size:13px;}
+  .btn{border:1px solid var(--border);background:var(--panel);padding:7px 12px;border-radius:6px;
+    cursor:pointer;font-size:13px;color:var(--text);white-space:nowrap;}
+  .btn:hover{background:var(--bg);}
+  .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .btn-primary:hover{background:#1d4ed8;}
+  .btn-primary:disabled{background:#93b4f5;border-color:#93b4f5;cursor:not-allowed;}
+  .btn-danger{color:var(--red);}
+  .btn.active{background:var(--text);color:#fff;}
+  .view-switch{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
+  .view-switch button{border:none;background:transparent;padding:5px 12px;border-radius:5px;
+    cursor:pointer;font-size:13px;color:var(--muted);}
+  .view-switch button.active{background:var(--text);color:#fff;}
+
+  .layout{display:grid;grid-template-columns:190px 320px 1fr;height:calc(100vh - 53px);}
+  @media (max-width: 900px){ .layout{grid-template-columns:1fr;height:auto;} .col{border-right:none !important;border-bottom:1px solid var(--border);} }
+
+  .col{overflow-y:auto;border-right:1px solid var(--border);background:var(--panel);}
+  .col-nav{padding:14px 10px;background:var(--bg);}
+  .col-nav h2{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+    margin:14px 8px 6px;}
+  .col-nav h2:first-child{margin-top:2px;}
+  .nav-item{display:flex;justify-content:space-between;padding:7px 10px;border-radius:6px;
+    cursor:pointer;color:var(--text);font-size:13px;}
+  .nav-item:hover{background:#eceff2;}
+  .nav-item.active{background:var(--accent-bg);color:var(--accent);font-weight:600;}
+  .nav-item .count{color:var(--muted);font-size:12px;}
+  .nav-item.active .count{color:var(--accent);}
+
+  .list-toolbar{display:flex;align-items:center;gap:6px;padding:8px 10px 4px;font-size:12px;color:var(--muted);}
+  .list-toolbar select{padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff;}
+  .ticket-list{padding:6px;}
+  .ticket-item{padding:10px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;border:1px solid transparent;}
+  .ticket-item:hover{background:var(--bg);}
+  .ticket-item.active{background:var(--accent-bg);border-color:#c7dafe;}
+  .ticket-item .row1{display:flex;justify-content:space-between;align-items:baseline;gap:6px;}
+  .ticket-item .name{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ticket-item .date{font-size:11px;color:var(--muted);white-space:nowrap;}
+  .ticket-item .meta{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;}
+  .ticket-item .summary{font-size:12px;color:var(--muted);margin-top:4px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+
+  .badge{display:inline-block;padding:2px 7px;border-radius:99px;font-size:11px;font-weight:600;}
+  .badge-cat{background:#f1f0fe;color:#5b21b6;}
+  .badge-status{background:#f3f4f6;color:#374151;}
+  .badge-channel{background:#eef2ff;color:#4338ca;}
+  .badge-alert{background:#fef3c7;color:#92400e;}
+  .badge-alert.bad{background:#fee2e2;color:#991b1b;}
+  .badge-score{background:#ecfdf5;color:#065f46;}
+
+  .empty{padding:30px 16px;color:var(--muted);font-size:13px;text-align:center;}
+
+  /* Correctif 2026-09-15 (10e passage), demandé par Luc : le composeur
+  (zone de réponse en bas) se retrouvait poussé hors de l'écran / coupé au
+  lieu de rester fixe et entièrement visible. Cause : `.col` (règle plus
+  haut) pose `overflow-y:auto` sur CET élément, qui a aussi son propre
+  layout flex-colonne avec `.thread` en `flex:1` censé absorber tout
+  l'espace et scroller seul — mais un item flex garde par défaut
+  `min-height:auto`, donc dès que l'en-tête (statuts, panneau influence…)
+  + le fil devenaient plus hauts que la colonne, c'est le `.col` PARENT qui
+  scrollait tout le bloc d'un coup (en-tête + fil + composeur ensemble) au
+  lieu de laisser le composeur fixe et seul le fil scroller. `overflow:
+  hidden` ici désactive ce scroll parasite du conteneur, et `min-height:0`
+  sur `.thread` (plus bas) l'autorise enfin à vraiment rétrécir et à
+  scroller lui seul — le composeur reste alors toujours entièrement visible
+  en bas, quelle que soit la longueur du fil ou de l'en-tête. */
+  .detail{display:flex;flex-direction:column;height:100%;overflow:hidden;}
+  /* flex-shrink:0 : garde toujours sa taille naturelle plutôt que de se
+  faire écraser par le fil de messages ; overflow-y:auto + max-height : si
+  jamais il devient très haut (recherche de profil influence ouverte, etc.),
+  IL scrolle en interne plutôt que de repousser le composeur hors champ —
+  voir le correctif complet sur .detail plus haut. */
+  .detail-header{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0;max-height:55vh;overflow-y:auto;}
+  .detail-header .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+  .detail-header h2{margin:0;font-size:16px;}
+  .detail-header .sub{color:var(--muted);font-size:12.5px;margin-top:3px;}
+  .field-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+  .field-row label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px;}
+  select, .field-row input[type="text"]{padding:5px 8px;border:1px solid var(--border);
+    border-radius:6px;font-size:12.5px;background:#fff;}
+
+  .influence-box{margin-top:10px;padding:8px 10px;border:1px dashed var(--border);border-radius:8px;
+    font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .influence-box .info strong{font-size:13px;}
+  .influence-search{display:none;margin-top:8px;padding:10px;background:var(--bg);border-radius:8px;}
+  .influence-search.open{display:block;}
+  .influence-results{max-height:180px;overflow-y:auto;margin-top:6px;}
+  .influence-result{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;
+    border-radius:6px;font-size:12.5px;}
+  .influence-result:hover{background:#fff;}
+  /* Correctif 2026-09-15 : panneau "qualité influenceuse" (photo, stats, tags) */
+  .profile-card{display:flex;gap:10px;align-items:flex-start;width:100%;}
+  .profile-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg);}
+  .profile-avatar-placeholder{display:flex;align-items:center;justify-content:center;font-size:18px;}
+  .profile-card-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
+  .profile-card-top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+  .profile-card-top strong{font-size:13.5px;}
+  .profile-card-top a{color:var(--accent);text-decoration:none;font-size:12.5px;}
+  .profile-card-stats{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+  .profile-card-stats a{color:var(--accent);text-decoration:none;}
+  .profile-card-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;}
+
+  .thread{flex:1;min-height:0;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:2px;}
+  /* Correctif 2026-09-15 (compacité du fil) : les bulles occupaient au plus
+     70% de la largeur du fil, ce qui laissait beaucoup de vide de part et
+     d'autre et forçait le texte à retomber sur davantage de lignes qu'il
+     n'était nécessaire — un fil peu compact en hauteur. On élargit les
+     bulles (90% de la largeur dispo, chacune collée à son bord — gauche pour
+     l'entrant, droite pour le sortant, comme dans une messagerie classique)
+     et on resserre légèrement les espacements verticaux pour un rendu plus
+     dense, sans rien changer au regroupement par sens déjà en place plus bas. */
+  /* Correctif 2026-09-15 (10e passage), demandé par Luc : la bulle doit
+  épouser la taille du texte (comme WhatsApp/Messenger), pas occuper une
+  largeur fixe/disproportionnée. `align-self` seul (voir .msg.inbound/
+  .msg.outbound plus bas) suffit en théorie à faire "rétrécir" un item flex
+  à son contenu, mais en pratique le rendu restait large et carré pour un
+  texte court — `width:fit-content` force explicitement la bulle à ne
+  prendre que la largeur de son contenu (jusqu'à max-width), ce qui est le
+  comportement recherché. max-width abaissé de 90% à 75% au passage,
+  proportion plus proche de ce qu'utilisent WhatsApp/Messenger (une bulle
+  qui va presque d'un bord à l'autre du fil, même pour un texte long,
+  paraît disproportionnée dans l'autre sens).
+  min-width évite qu'un tout petit mot ("Ok", "👍") donne une bulle trop
+  écrasée/illisible. */
+  .msg{width:fit-content;max-width:75%;min-width:36px;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word;margin-bottom:6px;}
+  .msg.inbound{align-self:flex-start;background:#f1f2f4;border-bottom-left-radius:2px;}
+  .msg.outbound{align-self:flex-end;background:var(--accent-bg);border-bottom-right-radius:2px;}
+  /* Regroupement "façon messagerie" : des messages consécutifs du même sens
+     se collent (petit espace, angle de raccord aplati) plutôt que d'afficher
+     une bulle isolée à chaque message — voir renderThread(). */
+  .msg.grouped-bottom{margin-bottom:2px;}
+  .msg.inbound.grouped-top{border-top-left-radius:4px;}
+  .msg.inbound.grouped-bottom{border-bottom-left-radius:4px;}
+  .msg.outbound.grouped-top{border-top-right-radius:4px;}
+  .msg.outbound.grouped-bottom{border-bottom-right-radius:4px;}
+  .msg .meta{display:flex;gap:6px;align-items:center;margin-top:6px;font-size:10.5px;color:var(--muted);}
+  .msg .status-pill{padding:1px 6px;border-radius:99px;font-weight:600;}
+  .status-pill[data-s="draft"]{background:#fef3c7;color:#92400e;}
+  .status-pill[data-s="validated"]{background:#dbeafe;color:#1e40af;}
+  .status-pill[data-s="sent"]{background:#dcfce7;color:#166534;}
+  .status-pill[data-s="rejected"]{background:#fee2e2;color:#991b1b;}
+  .status-pill[data-s="received"]{background:#e5e7eb;color:#374151;}
+  .msg .actions{display:flex;gap:6px;margin-top:6px;}
+  .msg .actions .btn{padding:3px 9px;font-size:11.5px;}
+  .msg .attachments{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .msg .attachments img{max-width:220px;max-height:220px;border-radius:8px;display:block;cursor:pointer;}
+  .msg .attachments video{max-width:220px;max-height:220px;border-radius:8px;display:block;}
+  .msg .attachments a.file-attachment{font-size:12px;color:var(--accent);text-decoration:underline;}
+
+  .composer{border-top:1px solid var(--border);padding:12px 18px;background:var(--panel);flex-shrink:0;}
   .composer textarea{width:100%;min-height:60px;padding:9px 10px;border:1px solid var(--border);
     border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;}
   .composer .row{display:flex;justify-content:space-between;margin-top:8px;align-items:center;flex-wrap:wrap;gap:8px;}
