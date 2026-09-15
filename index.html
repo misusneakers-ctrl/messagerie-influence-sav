@@ -1088,6 +1088,11 @@ async function syncInfluenceProfile(accountId, btn) {
   } catch (err) {
     if (err.message && err.message.includes('facebook_not_connected')) {
       toast('Connecte d\'abord Facebook pour cette marque (bouton "🔗 Connecter Facebook").', true);
+    } else if (err.payload && err.payload.error === 'business_discovery_account_not_eligible') {
+      // Correctif 2026-09-15 (10e passage), demandé par Luc suite au cas
+      // "kamarwen" (compte privé) : au lieu du JSON brut de Meta, message
+      // clair et actionnable — rien à réparer côté plateforme dans ce cas.
+      toast(err.payload.message, true);
     } else {
       // Correctif 2026-09-15 (4e passage) : le message d'erreur générique
       // ("meta_api_error") ne suffisait pas à diagnostiquer quoi que ce
