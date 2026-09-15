@@ -759,10 +759,19 @@ function renderThread() {
     const statusPillHtml = m.direction === 'outbound'
       ? `<span class="status-pill" data-s="${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>`
       : '';
+    // Correctif 2026-09-15 : afficher la date d'ENVOI réel (sent_at, posée
+    // par api/tickets/:id/messages/:messageId/send.js au moment où le
+    // message part vraiment), pas la date de création du brouillon
+    // (created_at) — un brouillon peut attendre longtemps en file de
+    // validation avant d'être envoyé. Pour un message importé Instagram
+    // (entrant, ou sortant déjà envoyé ailleurs), sent_at n'est jamais posé
+    // : created_at porte déjà l'horodatage réel fourni par Meta
+    // (created_time), donc le repli sur created_at reste correct dans ce cas.
+    const displayDate = m.sent_at || m.created_at;
     const metaHtml = showMeta ? `
       <div class="meta">
         ${statusPillHtml}
-        <span>${fmtDate(m.created_at)}</span>
+        <span>${fmtDate(displayDate)}</span>
         ${m.error ? '<span style="color:var(--red);">· ' + escapeHtml(m.error) + '</span>' : ''}
       </div>
     ` : '';
