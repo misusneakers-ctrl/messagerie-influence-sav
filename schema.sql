@@ -82,6 +82,17 @@ CREATE TABLE influence_accounts (
   editorial_universe TEXT,
   visible_brands_collabs TEXT,
   evidence_notes TEXT,
+  -- Correctif 2026-09-15 (panneau "qualite influenceuse", demande par Luc) :
+  -- champs alimentes soit a la main (email/age/story sauvegardee, jamais
+  -- exposes par Meta pour un compte tiers), soit plus tard automatiquement
+  -- une fois la Business Discovery API branchee (photo, followers,
+  -- engagement deja couverts plus haut, tags frequents, date du dernier
+  -- sync), en attendant editables a la main.
+  profile_picture_url TEXT,
+  age INTEGER,
+  saved_story_url TEXT,
+  frequent_tags TEXT[],
+  instagram_synced_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
