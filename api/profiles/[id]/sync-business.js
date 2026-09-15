@@ -39,6 +39,10 @@ const ERROR_STATUS = {
   ig_business_account_id_missing: 500,
   meta_api_error: 502,
   business_discovery_empty: 502,
+  // Correctif 2026-09-15 (10e passage) : compte privé / non-pro / introuvable
+  // (Meta renvoie code 110 "Invalid user id") — pas une erreur serveur, donc
+  // 404 plutôt que 502, comme les autres "pas trouvé" ci-dessus.
+  business_discovery_account_not_eligible: 404,
 };
 
 module.exports = withTenantHandler(async (req, res, tenant) => {
