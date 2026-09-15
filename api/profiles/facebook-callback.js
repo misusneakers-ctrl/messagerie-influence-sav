@@ -20,6 +20,21 @@ const META_APP_ID = '1776379956832524';
 const REDIRECT_URI = 'https://messagerie-influence-sav.vercel.app/api/profiles/facebook-callback';
 const GRAPH_VERSION = 'v21.0';
 
+// Correctif 2026-09-15 (3e passage) : Luc administre des Pages réparties sur
+// PLUSIEURS Business Portfolios Meta distincts (BBP et Misü), et /me/accounts
+// renvoie toutes les Pages éligibles pêle-mêle, dans un ordre non garanti —
+// prendre pagesWithIg[0] revenait à associer au hasard la Page de l'une des
+// marques au tenant en train de se connecter (bug constaté le 15/09 : le
+// flux lancé pour "bbp" a stocké le compte Instagram de Misü). On verrouille
+// donc explicitement, par tenant, le handle Instagram professionnel attendu
+// (voir DIAGNOSTIC_BBDP_DM_INSTAGRAM_20260909.md) et on ne retient QUE la
+// Page dont le compte Instagram lié correspond — sinon on affiche une erreur
+// claire plutôt que de stocker silencieusement la mauvaise Page.
+const EXPECTED_IG_USERNAME_BY_TENANT = {
+  bbp: 'bonsbaisers.paris',
+  misu: 'misu.sneakers',
+};
+
 function htmlPage(title, bodyHtml) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <title>${title}</title>
@@ -98,21 +113,43 @@ module.exports = async function handler(req, res) {
     }
 
     const pagesWithIg = pagesJson.data.filter((p) => p.instagram_business_account);
+    const expectedUsername = EXPECTED_IG_USERNAME_BY_TENANT[tenant.slug] || null;
+
     if (pagesWithIg.length === 0) {
       res.status(200).send(htmlPage('Aucun compte Instagram lié',
         `<h1 class="err">Aucune Page avec un compte Instagram professionnel lié</h1>
         <p>Facebook a renvoyé ${pagesJson.data.length} Page(s) (${pagesJson.data.map((p) => p.name).join(', ') || 'aucune'}),
         mais aucune n'a de compte Instagram professionnel associé.</p>
-        <p>Vérifie dans Meta Business Suite que le compte Instagram (@${tenant.slug === 'bbp' ? 'bonsbaisers.paris' : 'misu'})
+        <p>Vérifie dans Meta Business Suite que le compte Instagram (@${expectedUsername || tenant.slug})
         est bien relié à une Page Facebook, puis relance la connexion.</p>`));
       return;
     }
-    // Choisit la première Page avec un compte Instagram pro lié. En
-    // pratique BBP et Misü n'ont chacune qu'une seule Page concernée.
-    const chosen = pagesWithIg[0];
-    const extraNote = pagesWithIg.length > 1
-      ? `<p><em>Note : ${pagesWithIg.length} Pages éligibles trouvées, la première (${chosen.name}) a été retenue automatiquement. Signale-le si ce n'est pas la bonne.</em></p>`
-      : '';
+
+    // Verrouillage par tenant : on ne retient que la Page dont le compte
+    // Instagram lié correspond exactement au handle attendu pour cette
+    // marque, jamais un choix positionnel.
+    const chosen = expectedUsername
+      ? pagesWithIg.find(
+          (p) =>
+            p.instagram_business_account.username &&
+            p.instagram_business_account.username.toLowerCase() === expectedUsername.toLowerCase()
+        )
+      : null;
+
+    if (!chosen) {
+      const foundList = pagesWithIg
+        .map((p) => `@${p.instagram_business_account.username || p.instagram_business_account.id} (Page "${p.name}")`)
+        .join(', ');
+      res.status(200).send(htmlPage('Mauvais compte Instagram',
+        `<h1 class="err">Le compte Instagram attendu pour ${tenant.name} n'a pas été trouvé</h1>
+        <p>Facebook a proposé ${pagesWithIg.length} Page(s) avec compte Instagram lié : ${foundList || 'aucune'}.</p>
+        <p>Aucune ne correspond au compte attendu pour cette marque${expectedUsername ? ` (<strong>@${expectedUsername}</strong>)` : ''}.</p>
+        <p>Vérifie dans Meta Business Suite que le compte Instagram @${expectedUsername || tenant.slug} est bien relié
+        à une Page Facebook dans le Business Portfolio de ${tenant.name}, et que tu as accepté cette Page lors de
+        l'écran de sélection Facebook (⚠️ Facebook affiche parfois un écran "Sélectionner les Pages" où il faut
+        cocher explicitement la bonne Page avant de continuer). Puis relance la connexion.</p>`));
+      return;
+    }
 
     await withTenant(tenant.id, async (client) => {
       const metadata = {
@@ -141,7 +178,6 @@ module.exports = async function handler(req, res) {
       `<h1 class="ok">✅ Connexion réussie pour ${tenant.name}</h1>
       <p>Page Facebook : <strong>${chosen.name}</strong><br>
       Compte Instagram lié : <strong>@${chosen.instagram_business_account.username || chosen.instagram_business_account.id}</strong></p>
-      ${extraNote}
       <p>Tu peux fermer cet onglet et retourner sur la messagerie.</p>`));
   } catch (err) {
     res.status(502).send(htmlPage('Erreur',
