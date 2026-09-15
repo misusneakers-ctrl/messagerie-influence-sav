@@ -11,6 +11,7 @@ const { withTenant } = require('../../lib/db');
 const { decrypt } = require('../../lib/crypto');
 const { logAudit } = require('../../lib/audit');
 const instagramRead = require('../../lib/channels/instagram-read');
+const { findOrCreateInfluenceRelation } = require('../../lib/influence');
 
 // Correctif 2026-09-15 : les messages de chaque conversation étaient
 // récupérés un par un, en série (un aller-retour Instagram par
@@ -178,10 +179,22 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           const category = (defaultCategoryRows[0] && defaultCategoryRows[0].label) || 'Influence';
           const status = (defaultStatusRows[0] && defaultStatusRows[0].label) || 'a_traiter';
 
+          // Correctif 2026-09-15 (6e passage), demandé par Luc ("est-ce
+          // qu'on peut lier directement le profil instagram ? pour tous les
+          // contacts ?") : plutôt que d'obliger à chercher/créer le profil
+          // influence à la main depuis chaque ticket, on le lie
+          // automatiquement dès la création du ticket, à partir du handle
+          // Instagram du contact (find-or-create, voir lib/influence.js).
+          // Si le contact n'a pas de username exploitable, on laisse
+          // influence_relation_id à NULL comme avant — rien ne casse.
+          const autoRelationId = contactParticipant.username
+            ? await findOrCreateInfluenceRelation(client, tenant.id, contactParticipant.username, contactParticipant.username)
+            : null;
+
           const { rows: insertedTicketRows } = await client.query(
-            `INSERT INTO tickets (tenant_id, channel, category, status, contact_handle, external_thread_id)
-             VALUES ($1, 'instagram', $2, $3, $4, $5) RETURNING *`,
-            [tenant.id, category, status, contactParticipant.username || null, contactParticipant.id]
+            `INSERT INTO tickets (tenant_id, channel, category, status, contact_handle, external_thread_id, influence_relation_id)
+             VALUES ($1, 'instagram', $2, $3, $4, $5, $6) RETURNING *`,
+            [tenant.id, category, status, contactParticipant.username || null, contactParticipant.id, autoRelationId]
           );
           ticket = insertedTicketRows[0];
           summary.tickets_created += 1;
@@ -190,7 +203,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
             action: 'ticket_created',
             entityType: 'ticket',
             entityId: ticket.id,
-            details: { via: 'sync_instagram', external_thread_id: contactParticipant.id },
+            details: { via: 'sync_instagram', external_thread_id: contactParticipant.id, auto_linked_influence: !!autoRelationId },
           });
         }
 
