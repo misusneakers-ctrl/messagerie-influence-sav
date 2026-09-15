@@ -44,6 +44,29 @@ function extractHashtags(captions) {
     .map(([tag]) => tag);
 }
 
+// Correctif 2026-09-15 (5e passage), demandé par Luc : comptes @mentionnés
+// dans le texte des posts (captions), en plus des hashtags — même méthode
+// d'extraction. Limite assumée : ce sont les mentions dans la LÉGENDE du
+// post, pas les tags visuels posés directement sur la photo (people tagged
+// in photo) — ces derniers ne sont pas exposés par l'API Business Discovery
+// pour un compte tiers, aucun moyen technique de les récupérer.
+function extractMentions(captions) {
+  const counts = new Map();
+  for (const caption of captions) {
+    if (!caption) continue;
+    const matches = caption.match(/@[\p{L}0-9._]+/gu) || [];
+    for (const raw of matches) {
+      const handle = raw.slice(1).toLowerCase().replace(/[._]+$/, '');
+      if (!handle) continue;
+      counts.set(handle, (counts.get(handle) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([handle]) => handle);
+}
+
 module.exports = withTenantHandler(async (req, res, tenant) => {
   const { id } = req.query || {};
   if (!id) {
@@ -143,6 +166,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     engagementObserved = Number(((rates.reduce((a, b) => a + b, 0) / rates.length) * 100).toFixed(2));
   }
   const frequentTags = extractHashtags(media.map((m) => m.caption));
+  const mentionedAccounts = extractMentions(media.map((m) => m.caption));
 
   const updated = await withoutTenant(async (client) => {
     const { rows } = await client.query(
@@ -151,11 +175,12 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
            engagement_observed = $3,
            profile_picture_url = COALESCE($4, profile_picture_url),
            frequent_tags = $5,
+           mentioned_accounts = $6,
            instagram_synced_at = now(),
            updated_at = now()
        WHERE id = $1
        RETURNING *`,
-      [id, followerCount, engagementObserved, discovery.profile_picture_url || null, frequentTags]
+      [id, followerCount, engagementObserved, discovery.profile_picture_url || null, frequentTags, mentionedAccounts]
     );
     return rows[0];
   });
