@@ -327,6 +327,7 @@ const state = {
   messages: [],
   linkedProfile: null,
   pendingAttachment: null, // {type:'image'|'video'|'file', url, filename} en attente d'envoi — correctif 2026-09-15
+  threadSortOrder: 'asc', // 'asc' (plus anciens en haut, défaut) | 'desc' (plus récents en haut) — correctif 2026-09-15
   categories: [], // [{id,label,sort_order,is_default}]
   statuses: [],
   queue: {
@@ -559,6 +560,10 @@ async function renderDetail() {
         <div><label>Catégorie</label><select id="categorySelect">${catOptions}</select></div>
         <div><label>Commande liée</label><input type="text" id="orderInput" value="${escapeHtml(t.related_order_number || '')}" placeholder="Ex. C294671" /></div>
         <div><label>Assigné à</label><input type="text" id="assignedInput" value="${escapeHtml(t.assigned_to || '')}" placeholder="Ex. Luc" /></div>
+        <div><label>Tri des messages</label><select id="threadSortSelect">
+          <option value="asc" ${state.threadSortOrder === 'asc' ? 'selected' : ''}>Plus anciens en premier</option>
+          <option value="desc" ${state.threadSortOrder === 'desc' ? 'selected' : ''}>Plus récents en premier</option>
+        </select></div>
       </div>
       <div class="influence-box" id="influenceBox"></div>
       <div class="influence-search" id="influenceSearch">
@@ -589,6 +594,7 @@ async function renderDetail() {
   document.getElementById('categorySelect').onchange = (e) => patchTicket({ category: e.target.value });
   document.getElementById('orderInput').onblur = (e) => patchTicket({ related_order_number: e.target.value });
   document.getElementById('assignedInput').onblur = (e) => patchTicket({ assigned_to: e.target.value });
+  document.getElementById('threadSortSelect').onchange = (e) => { state.threadSortOrder = e.target.value; renderThread(); };
   document.getElementById('draftBtn').onclick = createDraft;
   document.getElementById('sendDirectBtn').onclick = sendDirectly;
   document.getElementById('attachBtn').onclick = () => document.getElementById('attachmentFileInput').click();
@@ -740,6 +746,21 @@ async function deleteTicketConfirm() {
 // "reçu" (inbound) n'affiche plus de pastille de statut — l'information
 // n'apporte rien face à un simple message reçu, contrairement à un sortant
 // (draft/validated/sent/rejected) qui reste informatif.
+// Correctif 2026-09-15 (compacité + tri) : un corps de message copié-collé
+// (mail, DM Instagram…) arrive parfois avec plusieurs lignes vides
+// consécutives — chacune ajoute une ligne de hauteur dans la bulle
+// (white-space:pre-wrap), d'où de grands blocs de vide constatés dans le
+// fil. On ne modifie jamais le texte enregistré en base : on le nettoie
+// seulement à l'affichage (espaces de début/fin retirés, lignes vides
+// consécutives réduites à une seule).
+function normalizeBodyForDisplay(body) {
+  if (!body) return '';
+  return body.replace(/\n{2,}/g, '\n').trim();
+}
+
+// Tri du fil : par défaut chronologique (plus ancien en haut, comme avant),
+// mais réglable par Luc via le sélecteur "Tri des messages" du header —
+// state.threadSortOrder, persistant tant que l'appli reste ouverte.
 function renderThread() {
   const threadEl = document.getElementById('thread');
   if (state.messages.length === 0) {
@@ -747,10 +768,26 @@ function renderThread() {
     return;
   }
   threadEl.innerHTML = '';
-  const msgs = state.messages;
-  msgs.forEach((m, idx) => {
-    const prev = msgs[idx - 1];
-    const next = msgs[idx + 1];
+  const sorted = state.messages.slice().sort((a, b) => {
+    const ta = new Date(a.sent_at || a.created_at || 0).getTime();
+    const tb = new Date(b.sent_at || b.created_at || 0).getTime();
+    return state.threadSortOrder === 'desc' ? tb - ta : ta - tb;
+  });
+
+  // Correctif 2026-09-15 (suite) : un message sans texte utile (vide, ou
+  // réduit à rien après normalizeBodyForDisplay) et sans pièce jointe ne
+  // laisse plus de bulle quasi vide dans le fil — il n'apporte rien de
+  // visible et ne faisait qu'ajouter du vide. Ses infos (date, statut,
+  // action à mener) sont rares dans ce cas et, si elles existaient, un
+  // brouillon vide n'a de toute façon rien à valider ; on ne perd donc
+  // aucune action réelle en le masquant.
+  const msgs = sorted
+    .map((m) => ({ m, cleanBody: normalizeBodyForDisplay(m.body), attachments: Array.isArray(m.attachments) ? m.attachments : [] }))
+    .filter(({ cleanBody, attachments }) => cleanBody || attachments.length > 0);
+
+  msgs.forEach(({ m, cleanBody, attachments }, idx) => {
+    const prev = msgs[idx - 1] && msgs[idx - 1].m;
+    const next = msgs[idx + 1] && msgs[idx + 1].m;
     const groupedTop = !!(prev && prev.direction === m.direction);
     const groupedBottom = !!(next && next.direction === m.direction);
 
@@ -767,11 +804,6 @@ function renderThread() {
       actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button></div>`;
     }
 
-    // Pièces jointes (images/vidéos/fichiers) — le corps n'est affiché que
-    // s'il est non vide : un message Instagram composé uniquement d'une
-    // image arrive avec body = '' et ne doit pas laisser de bulle vide
-    // au-dessus de la pièce jointe.
-    const attachments = Array.isArray(m.attachments) ? m.attachments : [];
     const attachmentsHtml = attachments.length === 0 ? '' : `<div class="attachments">${attachments.map((a) => {
       if (a.type === 'image') return `<img src="${escapeHtml(a.url)}" alt="pièce jointe" onclick="window.open('${escapeHtml(a.url)}','_blank')" />`;
       if (a.type === 'video') return `<video controls src="${escapeHtml(a.url)}"></video>`;
@@ -800,14 +832,17 @@ function renderThread() {
     ` : '';
 
     div.innerHTML = `
-      ${m.body ? `<div>${escapeHtml(m.body)}</div>` : ''}
+      ${cleanBody ? `<div>${escapeHtml(cleanBody)}</div>` : ''}
       ${attachmentsHtml}
       ${metaHtml}
       ${actions}
     `;
     threadEl.appendChild(div);
   });
-  threadEl.scrollTop = threadEl.scrollHeight;
+  // En tri "plus récents en premier", le début du fil (haut) est déjà le
+  // plus pertinent — pas de défilement vers le bas comme en tri
+  // chronologique classique.
+  threadEl.scrollTop = state.threadSortOrder === 'desc' ? 0 : threadEl.scrollHeight;
 
   threadEl.querySelectorAll('[data-action="validate"]').forEach((btn) => {
     btn.onclick = () => validateMessage(btn.dataset.id);
