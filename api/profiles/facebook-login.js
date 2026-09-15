@@ -34,10 +34,19 @@ const REDIRECT_URI = 'https://messagerie-influence-sav.vercel.app/api/profiles/f
 // permissions ne sont accordables qu'après un Contrôle app (App Review)
 // plus poussé, non fait, et de toute façon inutiles ici : on ne fait QUE de
 // la lecture publique (Business Discovery), jamais de publication ni
-// d'envoi de message via ce token-là. On ne demande donc que le strict
-// nécessaire pour lire les stats publiques d'un compte tiers.
+// d'envoi de message via ce token-là.
+//
+// Correctif 2026-09-15 (4e passage) : la synchro échouait avec "(#10)
+// Application does not have permission for this action" — il manquait
+// `instagram_manage_insights`, qui est la permission qui porte réellement
+// la fonctionnalité Business Discovery ("découvrir et lire les informations
+// de profil et les contenus multimédia d'autres profils professionnels",
+// exactement ce qu'on fait dans sync-business.js). Elle a été ajoutée côté
+// app Meta (statut "Prête pour le test") et doit donc aussi être demandée
+// ici dans le scope OAuth, sinon le token obtenu ne l'a pas.
 const SCOPES = [
   'instagram_basic',
+  'instagram_manage_insights',
   'pages_read_engagement',
   'pages_show_list',
   'business_management',
