@@ -770,7 +770,22 @@ async function deleteTicketConfirm() {
 // consécutives réduites à une seule).
 function normalizeBodyForDisplay(body) {
   if (!body) return '';
-  return body.replace(/\n{2,}/g, '\n').trim();
+  // Correctif 2026-09-15 (suite, espace encore trop important dans les
+  // bulles) : le premier passage ne collapsait que des retours à la ligne
+  // VRAIMENT consécutifs (\n\n). Or beaucoup de messages (copiés-collés
+  // depuis un mail, Instagram…) ont des "lignes vides" qui contiennent en
+  // réalité une espace résiduelle (\n \n) — cette espace casse l'adjacence
+  // et la ligne "vide" passait donc au travers, d'où les grands blocs de
+  // vide qui persistaient dans les bulles malgré le premier correctif. On
+  // nettoie maintenant chaque ligne de ses espaces de fin AVANT de collapser,
+  // pour que toute ligne réellement vide (texte ou juste des espaces) soit
+  // traitée de la même façon.
+  return body
+    .split('\n')
+    .map((line) => line.replace(/[ \t ]+$/g, ''))
+    .join('\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
 }
 
 // Tri du fil : par défaut chronologique (plus ancien en haut, comme avant),
