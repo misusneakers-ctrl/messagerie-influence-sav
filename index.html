@@ -92,8 +92,16 @@
     border-radius:6px;font-size:12.5px;}
   .influence-result:hover{background:#fff;}
 
-  .thread{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:2px;}
-  .msg{max-width:70%;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.45;white-space:pre-wrap;margin-bottom:10px;}
+  .thread{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:2px;}
+  /* Correctif 2026-09-15 (compacité du fil) : les bulles occupaient au plus
+     70% de la largeur du fil, ce qui laissait beaucoup de vide de part et
+     d'autre et forçait le texte à retomber sur davantage de lignes qu'il
+     n'était nécessaire — un fil peu compact en hauteur. On élargit les
+     bulles (90% de la largeur dispo, chacune collée à son bord — gauche pour
+     l'entrant, droite pour le sortant, comme dans une messagerie classique)
+     et on resserre légèrement les espacements verticaux pour un rendu plus
+     dense, sans rien changer au regroupement par sens déjà en place plus bas. */
+  .msg{max-width:90%;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.4;white-space:pre-wrap;margin-bottom:6px;}
   .msg.inbound{align-self:flex-start;background:#f1f2f4;border-bottom-left-radius:2px;}
   .msg.outbound{align-self:flex-end;background:var(--accent-bg);border-bottom-right-radius:2px;}
   /* Regroupement "façon messagerie" : des messages consécutifs du même sens
@@ -1322,13 +1330,26 @@ function initQueueTabs() {
 }
 
 // ---------- Sondage Instagram (connecteur lecture, phase B) ----------
+// Correctif 2026-09-15 : ce sondage peut prendre du temps (il interroge
+// Instagram conversation par conversation, cote serveur) -- sans retour
+// visuel pendant l'attente, le bouton donnait l'impression d'etre fige.
+// On affiche desormais le temps ecoule en secondes pendant l'attente, et
+// on abandonne proprement (message clair, bouton reactive) si ca depasse
+// SYNC_TIMEOUT_MS au lieu de rester bloque indefiniment.
+const SYNC_TIMEOUT_MS = 100000;
 async function syncInstagram() {
   const btn = document.getElementById('syncInstagramBtn');
   const originalLabel = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Actualisation…';
+  const startedAt = Date.now();
+  btn.textContent = 'Actualisation… (0s)';
+  const tickInterval = setInterval(() => {
+    btn.textContent = `Actualisation… (${Math.round((Date.now() - startedAt) / 1000)}s)`;
+  }, 1000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
   try {
-    const data = await api('/api/tickets/sync-instagram', { method: 'POST' });
+    const data = await api('/api/tickets/sync-instagram', { method: 'POST', signal: controller.signal });
     const parts = [];
     if (data.tickets_created) parts.push(`${data.tickets_created} nouveau${data.tickets_created > 1 ? 'x' : ''} ticket${data.tickets_created > 1 ? 's' : ''}`);
     if (data.messages_created) parts.push(`${data.messages_created} nouveau${data.messages_created > 1 ? 'x' : ''} message${data.messages_created > 1 ? 's' : ''}`);
@@ -1336,12 +1357,16 @@ async function syncInstagram() {
     toast(`Instagram actualisé : ${summaryText}.`, (data.errors || []).length > 0);
     if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
   } catch (err) {
-    if (err.payload && err.payload.error === 'instagram_not_configured_for_tenant') {
+    if (err.name === 'AbortError') {
+      toast('Ça prend plus de temps que prévu (plus d\'une minute) — réessaie dans un instant ; si ça persiste, préviens-moi.', true);
+    } else if (err.payload && err.payload.error === 'instagram_not_configured_for_tenant') {
       toast('Instagram n\'est pas encore configuré pour cette marque.', true);
     } else {
       toast('Erreur : ' + err.message, true);
     }
   } finally {
+    clearInterval(tickInterval);
+    clearTimeout(timeoutId);
     btn.disabled = false;
     btn.textContent = originalLabel;
   }
