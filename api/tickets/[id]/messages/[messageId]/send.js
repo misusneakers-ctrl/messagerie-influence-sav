@@ -95,14 +95,48 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         const accessToken = decrypt(cred.encrypted_value);
         const igBusinessAccountId = cred.metadata?.ig_business_account_id;
 
-        let sendOutcome;
+        // Correctif 2026-09-15 (pièce jointe sortante) : l'API Send de Meta
+        // n'accepte qu'une seule forme de "message" par appel (texte OU une
+        // pièce jointe), jamais les deux ensemble. Un message de notre appli
+        // peut porter du texte ET une/des pièce(s) jointe(s) (ex. "Voici
+        // votre étiquette" + un PDF) : on envoie donc le texte d'abord (s'il
+        // y en a), puis chaque pièce jointe l'une après l'autre, chacune en
+        // un appel Meta séparé. externalMessageId retenu = celui du DERNIER
+        // appel réussi (pas de notion d'id composite côté Meta).
+        //
+        // Limite assumée : ce n'est pas atomique. Si le texte part mais
+        // qu'une pièce jointe échoue ensuite, le texte est déjà bel et bien
+        // envoyé sur Instagram même si le message est marqué "rejected" ici
+        // — Meta n'offre pas de méthode "tout ou rien" pour un envoi en
+        // plusieurs parties. Cas rare (échec entre deux appels très
+        // rapprochés) mais à garder en tête si Luc signale un message reçu
+        // en double lors d'un nouvel essai après échec.
+        const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+        let sendOutcome = null;
         try {
-          sendOutcome = await instagram.sendDirectMessage({
-            accessToken,
-            igBusinessAccountId,
-            recipientIgScopedId: ticket.external_thread_id,
-            text: message.body,
-          });
+          if (message.body) {
+            sendOutcome = await instagram.sendDirectMessage({
+              accessToken,
+              igBusinessAccountId,
+              recipientIgScopedId: ticket.external_thread_id,
+              text: message.body,
+            });
+          }
+          for (const attachment of attachments) {
+            sendOutcome = await instagram.sendDirectMessage({
+              accessToken,
+              igBusinessAccountId,
+              recipientIgScopedId: ticket.external_thread_id,
+              attachment,
+            });
+          }
+          if (!sendOutcome) {
+            // Ne devrait jamais arriver : api/tickets/:id/messages.js exige déjà
+            // au moins un des deux (body ou attachments) à la création.
+            const err = new Error('nothing_to_send');
+            err.code = 'nothing_to_send';
+            throw err;
+          }
         } catch (sendErr) {
           await client.query(
             `UPDATE ticket_messages SET status = 'rejected', error = $1, idempotency_key = $2 WHERE id = $3 AND tenant_id = $4`,
