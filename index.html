@@ -11,10 +11,36 @@
     --radius:8px;
   }
   *{box-sizing:border-box;}
+  /* Correctif 2026-09-15 (12e passage), demandé par Luc (capture : le
+  composeur, en bas à droite, est coupé au ras du bord de la fenêtre —
+  "la case en bas à droite doit se figer, elle ne doit pas pouvoir être
+  coupée") : la hauteur de `.layout` était calculée en `calc(100vh - 53px)`,
+  un chiffre EN DUR qui suppose que `header` fait toujours exactement 53px
+  de haut. Or `header` a `flex-wrap:wrap` et contient beaucoup d'éléments
+  (recherche, 6 boutons, les deux interrupteurs marque/vue) : dès que la
+  fenêtre n'est pas assez large (ou zoom navigateur, écran plus petit), le
+  header passe sur 2-3 lignes et fait BEAUCOUP plus de 53px — `.layout`
+  garde alors la hauteur calculée pour un header à 1 ligne, dépasse donc le
+  bas de la fenêtre, et le composeur (tout en bas de `.detail`, lui-même
+  tout en bas de `.layout`) se retrouve hors champ, exactement comme sur la
+  capture. Le chiffre en dur ne peut PAS être corrigé pour de bon : la
+  hauteur réelle du header dépend de la largeur de fenêtre, donc change au
+  redimensionnement — remplacé par une mise en page flex sur `body` (header
+  en taille naturelle + `.layout` qui absorbe TOUT le reste via `flex:1`,
+  quelle que soit la hauteur réelle du header) : plus aucune valeur en dur
+  à faire dériver. `overflow:hidden` sur `body` empêche un double scroll de
+  page (le scroll se fait déjà à l'intérieur de chaque colonne via `.col`),
+  et `min-height:0` est nécessaire pour qu'un enfant flex accepte de
+  rétrécir en dessous de sa taille de contenu (sinon `flex:1` seul ne
+  suffit pas à contraindre la hauteur, comme déjà documenté plus bas pour
+  `.thread`). Comportement identique sur mobile (voir media query
+  ci-dessous) : gardé en défilement de page classique, plus adapté à des
+  colonnes empilées verticalement qu'à un cadrage strict "un seul écran". */
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:var(--bg);color:var(--text);font-size:14px;}
+    background:var(--bg);color:var(--text);font-size:14px;
+    display:flex;flex-direction:column;height:100vh;overflow:hidden;}
   header{display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--panel);
-    border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;flex-wrap:wrap;}
+    border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;}
   header h1{font-size:15px;margin:0;font-weight:600;white-space:nowrap;}
   .tenant-switch{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;}
   .tenant-switch button{border:none;background:transparent;padding:5px 12px;border-radius:5px;
@@ -36,8 +62,26 @@
     cursor:pointer;font-size:13px;color:var(--muted);}
   .view-switch button.active{background:var(--text);color:#fff;}
 
-  .layout{display:grid;grid-template-columns:190px 320px 1fr;height:calc(100vh - 53px);}
-  @media (max-width: 900px){ .layout{grid-template-columns:1fr;height:auto;} .col{border-right:none !important;border-bottom:1px solid var(--border);} }
+  .layout{display:grid;grid-template-columns:190px 320px 1fr;flex:1;min-height:0;}
+  /* queue-view (l'autre vue plein écran, "File de validation") doit suivre
+  la même logique que .layout : sinon, avec `body` désormais en
+  `overflow:hidden`, son contenu se ferait couper en bas au lieu de
+  scroller (avant ce correctif, c'était `body` qui scrollait toute la
+  page — ce n'est plus possible/voulu maintenant que `body` est cadré
+  strictement sur la fenêtre). */
+  .queue-view{flex:1;min-height:0;overflow-y:auto;}
+  @media (max-width: 900px){
+    /* Sur mobile, les colonnes s'empilent verticalement (voir règle
+    .layout plus bas) : un cadrage strict "un seul écran" n'a plus de sens
+    dans ce cas (il faudrait faire tenir nav + liste + détail empilés dans
+    une seule hauteur d'écran) — on revient au défilement de page classique,
+    plus adapté ici, en désactivant le cadrage flex/overflow:hidden posé
+    sur `body` pour le format bureau. */
+    body{height:auto;overflow:visible;display:block;}
+    .layout{grid-template-columns:1fr;height:auto;flex:none;}
+    .queue-view{flex:none;overflow-y:visible;}
+    .col{border-right:none !important;border-bottom:1px solid var(--border);}
+  }
 
   .col{overflow-y:auto;border-right:1px solid var(--border);background:var(--panel);}
   .col-nav{padding:14px 10px;background:var(--bg);}
@@ -145,8 +189,25 @@
   qui va presque d'un bord à l'autre du fil, même pour un texte long,
   paraît disproportionnée dans l'autre sens).
   min-width évite qu'un tout petit mot ("Ok", "👍") donne une bulle trop
-  écrasée/illisible. */
-  .msg{width:fit-content;max-width:75%;min-width:36px;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word;margin-bottom:6px;}
+  écrasée/illisible.
+  Correctif 2026-09-15 (11e passage), demandé par Luc (capture montrant un
+  grand vide entre le texte et le "sent 12/09 11:20" en bas de bulle) :
+  `white-space:pre-wrap` était posé ici, sur `.msg` — hérité par TOUS ses
+  descendants faute d'override. Or `renderThread()` construit le contenu de
+  la bulle avec un template JS multi-lignes indenté
+  (`${cleanBody...}\n  ${attachmentsHtml}\n  ${metaHtml}\n  ${actions}`) :
+  chaque saut de ligne/indentation de CE code devient un nœud texte
+  "blanc" entre les balises, normalement invisible (repli navigateur par
+  défaut = `white-space:normal`, qui collapse les blancs), mais rendu bien
+  visible ici puisque pre-wrap préserve tout, y compris les sauts de ligne
+  du CODE lui-même — d'où le grand vide, sans rapport avec
+  normalizeBodyForDisplay (qui, lui, nettoie bien le TEXTE du message).
+  Le pre-wrap est déplacé sur `.msg-body` (le seul endroit où on veut
+  vraiment préserver les retours à la ligne saisis par l'utilisateur) : le
+  reste de la bulle (.meta, .actions) retrouve le comportement par défaut
+  et les blancs de mise en forme du template redeviennent invisibles. */
+  .msg{width:fit-content;max-width:75%;min-width:36px;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.4;word-break:break-word;margin-bottom:6px;}
+  .msg-body{white-space:pre-wrap;}
   .msg.inbound{align-self:flex-start;background:#f1f2f4;border-bottom-left-radius:2px;}
   .msg.outbound{align-self:flex-end;background:var(--accent-bg);border-bottom-right-radius:2px;}
   /* Regroupement "façon messagerie" : des messages consécutifs du même sens
@@ -1332,7 +1393,7 @@ function renderThread() {
     ` : '';
 
     div.innerHTML = `
-      ${cleanBody ? `<div>${escapeHtml(cleanBody)}</div>` : ''}
+      ${cleanBody ? `<div class="msg-body">${escapeHtml(cleanBody)}</div>` : ''}
       ${attachmentsHtml}
       ${metaHtml}
       ${actions}
