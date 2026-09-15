@@ -93,6 +93,17 @@
   .influence-result{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;
     border-radius:6px;font-size:12.5px;}
   .influence-result:hover{background:#fff;}
+  /* Correctif 2026-09-15 : panneau "qualité influenceuse" (photo, stats, tags) */
+  .profile-card{display:flex;gap:10px;align-items:flex-start;width:100%;}
+  .profile-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg);}
+  .profile-avatar-placeholder{display:flex;align-items:center;justify-content:center;font-size:18px;}
+  .profile-card-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
+  .profile-card-top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+  .profile-card-top strong{font-size:13.5px;}
+  .profile-card-top a{color:var(--accent);text-decoration:none;font-size:12.5px;}
+  .profile-card-stats{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+  .profile-card-stats a{color:var(--accent);text-decoration:none;}
+  .profile-card-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;}
 
   .thread{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:2px;}
   /* Correctif 2026-09-15 (compacité du fil) : les bulles occupaient au plus
@@ -317,6 +328,32 @@
     </div>
     <div class="actions">
       <button class="btn btn-primary" id="settingsCloseBtn">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="editProfileModal">
+  <div class="modal">
+    <h3>Éditer le profil influence</h3>
+    <label>Lien Instagram</label>
+    <input type="text" id="epInstagramUrl" placeholder="https://instagram.com/handle" />
+    <label>Photo de profil (URL)</label>
+    <input type="text" id="epProfilePictureUrl" placeholder="https://…" />
+    <label>Followers</label>
+    <input type="text" id="epFollowerCount" placeholder="Ex. 12500" />
+    <label>Taux d'engagement (%)</label>
+    <input type="text" id="epEngagement" placeholder="Ex. 3.2" />
+    <label>Email</label>
+    <input type="text" id="epEmail" placeholder="Non fourni par Instagram — à remplir à la main" />
+    <label>Âge</label>
+    <input type="text" id="epAge" placeholder="Non fourni par Instagram — à remplir à la main" />
+    <label>Lien vers une story sauvegardée (capture, repost…)</label>
+    <input type="text" id="epSavedStoryUrl" placeholder="Non accessible via l'API — à coller à la main" />
+    <label>Tags fréquents (séparés par des virgules)</label>
+    <input type="text" id="epTags" placeholder="Ex. mode, lifestyle, paris" />
+    <div class="actions">
+      <button class="btn" id="epCancel">Annuler</button>
+      <button class="btn btn-primary" id="epSave">Enregistrer</button>
     </div>
   </div>
 </div>
@@ -625,6 +662,24 @@ async function renderDetail() {
   renderThread();
 }
 
+// Correctif 2026-09-15 (panneau "qualité influenceuse") : le lien profil
+// n'affichait qu'une ligne de texte (nom, score, statut). Luc a demandé une
+// vraie fiche : photo, lien vers le compte Instagram, followers, taux
+// d'engagement, email, âge, lien vers une story sauvegardée, tags fréquents.
+// Ce que l'API Instagram ne peut PAS fournir automatiquement pour un compte
+// tiers (email, âge — jamais exposés par Meta —, et les stories d'un autre
+// compte, illisibles via l'API même pour celles où on est tagué) reste
+// éditable à la main via le bouton "Éditer". Followers/engagement/photo/tags
+// sont éditables à la main pour l'instant aussi et se rempliront seuls une
+// fois la Business Discovery API (Meta, connexion Facebook Login séparée)
+// configurée — voir TRANSMISSION-Messagerie-Influence-SAV.md.
+function fmtFollowers(n) {
+  if (n == null) return null;
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace('.0', '') + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1).replace('.0', '') + 'k';
+  return String(n);
+}
+
 function renderInfluenceBox() {
   const box = document.getElementById('influenceBox');
   if (!box) return;
@@ -632,14 +687,42 @@ function renderInfluenceBox() {
   if (t.influence_relation_id && state.linkedProfile) {
     const acc = state.linkedProfile.account;
     const rel = state.linkedProfile.relation;
+    const followers = fmtFollowers(acc.follower_count);
+    const engagement = acc.engagement_observed != null ? `${Number(acc.engagement_observed).toFixed(1)}%` : null;
+    const tags = Array.isArray(acc.frequent_tags) ? acc.frequent_tags : [];
     box.innerHTML = `
-      <div class="info">🔗 Profil influence lié : <strong>${escapeHtml(acc.display_name)}</strong>
-        ${acc.instagram_handle ? ' · @' + escapeHtml(acc.instagram_handle) : ''}
-        · score ${rel.score_total ?? 0}/100 · ${escapeHtml(rel.relationship_status || '')}
+      <div class="profile-card">
+        <img class="profile-avatar" src="${acc.profile_picture_url ? escapeHtml(acc.profile_picture_url) : ''}"
+          alt="" style="${acc.profile_picture_url ? '' : 'display:none;'}" />
+        ${acc.profile_picture_url ? '' : '<div class="profile-avatar profile-avatar-placeholder">👤</div>'}
+        <div class="profile-card-body">
+          <div class="profile-card-top">
+            <strong>${escapeHtml(acc.display_name)}</strong>
+            ${acc.instagram_handle ? (acc.instagram_url
+              ? `<a href="${escapeHtml(acc.instagram_url)}" target="_blank" rel="noopener">@${escapeHtml(acc.instagram_handle)} ↗</a>`
+              : `<span>@${escapeHtml(acc.instagram_handle)}</span>`) : ''}
+          </div>
+          <div class="profile-card-stats">
+            ${followers ? `<span>👥 ${followers} followers</span>` : ''}
+            ${engagement ? `<span>📈 ${engagement} engagement</span>` : ''}
+            <span>⭐ score ${rel.score_total ?? 0}/100</span>
+            ${rel.relationship_status ? `<span>${escapeHtml(rel.relationship_status)}</span>` : ''}
+          </div>
+          <div class="profile-card-stats">
+            ${acc.email ? `<span>✉️ ${escapeHtml(acc.email)}</span>` : ''}
+            ${acc.age ? `<span>🎂 ${escapeHtml(String(acc.age))} ans</span>` : ''}
+            ${acc.saved_story_url ? `<a href="${escapeHtml(acc.saved_story_url)}" target="_blank" rel="noopener">📸 story sauvegardée ↗</a>` : ''}
+          </div>
+          ${tags.length > 0 ? `<div class="profile-card-tags">${tags.map((tg) => `<span class="badge badge-cat">#${escapeHtml(tg)}</span>`).join('')}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <button class="btn" id="editProfileBtn">✎ Éditer</button>
+          <button class="btn" id="unlinkProfileBtn">Délier</button>
+        </div>
       </div>
-      <button class="btn" id="unlinkProfileBtn">Délier</button>
     `;
     document.getElementById('unlinkProfileBtn').onclick = () => patchTicket({ influence_relation_id: null });
+    document.getElementById('editProfileBtn').onclick = () => openEditProfileModal(acc);
   } else if (t.influence_relation_id) {
     box.innerHTML = `<div class="info">🔗 Profil influence lié (chargement…)</div>`;
   } else {
@@ -648,6 +731,50 @@ function renderInfluenceBox() {
       <button class="btn" id="linkProfileBtn">Lier un profil influence</button>
     `;
     document.getElementById('linkProfileBtn').onclick = toggleInfluenceSearch;
+  }
+}
+
+// ---------- Édition manuelle du profil influence (correctif 2026-09-15) ----------
+function openEditProfileModal(acc) {
+  document.getElementById('epInstagramUrl').value = acc.instagram_url || '';
+  document.getElementById('epProfilePictureUrl').value = acc.profile_picture_url || '';
+  document.getElementById('epFollowerCount').value = acc.follower_count ?? '';
+  document.getElementById('epEngagement').value = acc.engagement_observed ?? '';
+  document.getElementById('epEmail').value = acc.email || '';
+  document.getElementById('epAge').value = acc.age ?? '';
+  document.getElementById('epSavedStoryUrl').value = acc.saved_story_url || '';
+  document.getElementById('epTags').value = (Array.isArray(acc.frequent_tags) ? acc.frequent_tags : []).join(', ');
+  document.getElementById('editProfileModal').dataset.accountId = acc.id;
+  document.getElementById('editProfileModal').classList.add('open');
+}
+function closeEditProfileModal() {
+  document.getElementById('editProfileModal').classList.remove('open');
+}
+async function saveProfileEdits() {
+  const accountId = document.getElementById('editProfileModal').dataset.accountId;
+  const followerRaw = document.getElementById('epFollowerCount').value.trim();
+  const engagementRaw = document.getElementById('epEngagement').value.trim();
+  const ageRaw = document.getElementById('epAge').value.trim();
+  const tagsRaw = document.getElementById('epTags').value.trim();
+  const payload = {
+    instagram_url: document.getElementById('epInstagramUrl').value.trim() || null,
+    profile_picture_url: document.getElementById('epProfilePictureUrl').value.trim() || null,
+    follower_count: followerRaw ? parseInt(followerRaw, 10) : null,
+    engagement_observed: engagementRaw ? parseFloat(engagementRaw) : null,
+    email: document.getElementById('epEmail').value.trim() || null,
+    age: ageRaw ? parseInt(ageRaw, 10) : null,
+    saved_story_url: document.getElementById('epSavedStoryUrl').value.trim() || null,
+    frequent_tags: tagsRaw ? tagsRaw.split(',').map((s) => s.trim()).filter(Boolean) : [],
+  };
+  try {
+    await api('/api/profiles/' + accountId, { method: 'PATCH', body: payload });
+    closeEditProfileModal();
+    if (state.selectedTicket && state.selectedTicket.influence_relation_id) {
+      await loadLinkedProfile(state.selectedTicket.influence_relation_id);
+    }
+    toast('Profil mis à jour.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
   }
 }
 
@@ -770,19 +897,21 @@ async function deleteTicketConfirm() {
 // consécutives réduites à une seule).
 function normalizeBodyForDisplay(body) {
   if (!body) return '';
-  // Correctif 2026-09-15 (suite, espace encore trop important dans les
-  // bulles) : le premier passage ne collapsait que des retours à la ligne
-  // VRAIMENT consécutifs (\n\n). Or beaucoup de messages (copiés-collés
-  // depuis un mail, Instagram…) ont des "lignes vides" qui contiennent en
-  // réalité une espace résiduelle (\n \n) — cette espace casse l'adjacence
-  // et la ligne "vide" passait donc au travers, d'où les grands blocs de
-  // vide qui persistaient dans les bulles malgré le premier correctif. On
-  // nettoie maintenant chaque ligne de ses espaces de fin AVANT de collapser,
-  // pour que toute ligne réellement vide (texte ou juste des espaces) soit
-  // traitée de la même façon.
+  // Correctif 2026-09-15 (3e passage) : les deux tentatives précédentes
+  // (fusion des \n consécutifs, puis nettoyage des espaces de fin de ligne)
+  // ne suffisaient toujours pas. La vraie cause : un message peut arriver
+  // avec des fins de ligne Windows (\r\n). Dans "\r\n\r\n", les deux \n ne
+  // sont PAS directement consécutifs (il y a un \r entre eux), donc
+  // /\n{2,}/ ne les fusionnait jamais — toutes les "lignes vides" de ce
+  // type traversaient tous les nettoyages précédents sans être touchées.
+  // On normalise maintenant d'abord toute fin de ligne (\r\n ou \r seul)
+  // vers \n, puis toute ligne qui ne contient QUE des espaces est vidée
+  // entièrement (elle ne compte plus comme une ligne réelle), avant de
+  // fusionner les sauts de ligne consécutifs.
   return body
+    .replace(/\r\n?/g, '\n')
     .split('\n')
-    .map((line) => line.replace(/[ \t ]+$/g, ''))
+    .map((line) => (line.trim() === '' ? '' : line.replace(/\s+$/g, '')))
     .join('\n')
     .replace(/\n{2,}/g, '\n')
     .trim();
@@ -1502,6 +1631,11 @@ document.getElementById('settingsBtn').onclick = openSettingsModal;
 document.getElementById('settingsCloseBtn').onclick = closeSettingsModal;
 document.getElementById('settingsModal').addEventListener('click', (e) => {
   if (e.target.id === 'settingsModal') closeSettingsModal();
+});
+document.getElementById('epCancel').onclick = closeEditProfileModal;
+document.getElementById('epSave').onclick = saveProfileEdits;
+document.getElementById('editProfileModal').addEventListener('click', (e) => {
+  if (e.target.id === 'editProfileModal') closeEditProfileModal();
 });
 document.getElementById('addStatusBtn').onclick = () => addOption('status', 'newStatusInput');
 document.getElementById('addCategoryBtn').onclick = () => addOption('category', 'newCategoryInput');
