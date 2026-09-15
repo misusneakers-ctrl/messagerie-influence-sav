@@ -360,6 +360,45 @@
   </div>
 </div>
 
+<!-- Correctif 2026-09-15 (7e passage), demandé par Luc : jusqu'ici rien ne
+permettait de saisir les 6 sous-notes du score (toujours 0/100 affiché) —
+ni sur l'identité du profil (déjà éditable via "✎ Éditer" ci-dessus) ni sur
+la relation propre à cette marque (score_*, relationship_status,
+next_action, owner). Cette modale couvre la relation, via le nouveau
+endpoint PATCH /api/relations/[id]/score. Chaque note reste plafonnée et
+doit être justifiable par une observation/preuve (contrainte du cahier des
+charges) — d'où le rappel sous chaque champ, notamment le lien "Vérifier
+fake followers" déjà présent dans le panneau pour informer la note
+"audience pertinente". -->
+<div class="modal-backdrop" id="scoreModal">
+  <div class="modal">
+    <h3>Noter le profil influence (score sur 100)</h3>
+    <label>Adéquation marque et univers (0-25)</label>
+    <input type="number" id="scBrandFit" min="0" max="25" placeholder="Ex. 20" />
+    <label>Qualité créative et contenu réutilisable (0-20)</label>
+    <input type="number" id="scContentQuality" min="0" max="20" placeholder="Ex. 15" />
+    <label>Engagement et vues récentes (0-20)</label>
+    <input type="number" id="scEngagement" min="0" max="20" placeholder="Ex. 14" />
+    <label>Audience pertinente observable (0-15) — s'appuyer sur le lien "Vérifier fake followers" du panneau</label>
+    <input type="number" id="scAudienceRelevance" min="0" max="15" placeholder="Ex. 10" />
+    <label>Fiabilité relationnelle et historique (0-10)</label>
+    <input type="number" id="scReliability" min="0" max="10" placeholder="Ex. 8" />
+    <label>Potentiel commercial ou affilié (0-10)</label>
+    <input type="number" id="scCommercialPotential" min="0" max="10" placeholder="Ex. 7" />
+    <div style="margin:10px 0;font-size:13px;color:var(--muted);">Total actuel : <strong id="scTotalPreview">0</strong>/100</div>
+    <label>Statut de la relation</label>
+    <input type="text" id="scRelationshipStatus" placeholder="Ex. à relancer, partenaire actif, refusé…" />
+    <label>Prochaine action</label>
+    <input type="text" id="scNextAction" placeholder="Ex. envoyer proposition gifting" />
+    <label>Responsable</label>
+    <input type="text" id="scOwner" placeholder="Ex. Luc" />
+    <div class="actions">
+      <button class="btn" id="scCancel">Annuler</button>
+      <button class="btn btn-primary" id="scSave">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -742,6 +781,7 @@ function renderInfluenceBox() {
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <button class="btn" id="editProfileBtn">✎ Éditer</button>
+          <button class="btn" id="scoreProfileBtn">📊 Noter</button>
           ${acc.instagram_handle ? '<button class="btn" id="syncProfileBtn">🔄 Synchroniser</button>' : ''}
           <button class="btn" id="unlinkProfileBtn">Délier</button>
         </div>
@@ -749,6 +789,7 @@ function renderInfluenceBox() {
     `;
     document.getElementById('unlinkProfileBtn').onclick = () => patchTicket({ influence_relation_id: null });
     document.getElementById('editProfileBtn').onclick = () => openEditProfileModal(acc);
+    document.getElementById('scoreProfileBtn').onclick = () => openScoreModal(rel);
     const syncBtn = document.getElementById('syncProfileBtn');
     if (syncBtn) syncBtn.onclick = () => syncInfluenceProfile(acc.id, syncBtn);
   } else if (t.influence_relation_id) {
@@ -759,6 +800,86 @@ function renderInfluenceBox() {
       <button class="btn" id="linkProfileBtn">Lier un profil influence</button>
     `;
     document.getElementById('linkProfileBtn').onclick = toggleInfluenceSearch;
+  }
+}
+
+// ---------- Notation du profil influence (correctif 2026-09-15, 7e passage) ----------
+// Répond à la demande de Luc ("pour avoir une note un peu plus quali ??
+// même en dehors de cette plateforme ? Juste pour relier la donnée") :
+// avant ce correctif, rien ne permettait de saisir les 6 sous-notes qui
+// composent le score — d'où le "0/100" partout. Le principe : Luc va
+// vérifier ce qu'il faut AILLEURS (le lien "Vérifier fake followers" déjà
+// présent, Social Blade, son propre jugement sur le contenu…), puis reporte
+// juste le chiffre ici — c'est la "liaison de la donnée" demandée, pas une
+// nouvelle automatisation.
+const SCORE_FIELD_MAX = {
+  scBrandFit: 25,
+  scContentQuality: 20,
+  scEngagement: 20,
+  scAudienceRelevance: 15,
+  scReliability: 10,
+  scCommercialPotential: 10,
+};
+function updateScoreTotalPreview() {
+  let total = 0;
+  for (const id of Object.keys(SCORE_FIELD_MAX)) {
+    const v = parseInt(document.getElementById(id).value, 10);
+    if (!isNaN(v)) total += v;
+  }
+  document.getElementById('scTotalPreview').textContent = String(total);
+}
+function openScoreModal(rel) {
+  document.getElementById('scBrandFit').value = rel.score_brand_fit ?? '';
+  document.getElementById('scContentQuality').value = rel.score_content_quality ?? '';
+  document.getElementById('scEngagement').value = rel.score_engagement ?? '';
+  document.getElementById('scAudienceRelevance').value = rel.score_audience_relevance ?? '';
+  document.getElementById('scReliability').value = rel.score_reliability ?? '';
+  document.getElementById('scCommercialPotential').value = rel.score_commercial_potential ?? '';
+  document.getElementById('scRelationshipStatus').value = rel.relationship_status || '';
+  document.getElementById('scNextAction').value = rel.next_action || '';
+  document.getElementById('scOwner').value = rel.owner || '';
+  document.getElementById('scoreModal').dataset.relationId = rel.id;
+  updateScoreTotalPreview();
+  document.getElementById('scoreModal').classList.add('open');
+}
+function closeScoreModal() {
+  document.getElementById('scoreModal').classList.remove('open');
+}
+async function saveScore() {
+  const relationId = document.getElementById('scoreModal').dataset.relationId;
+  const readScore = (id, max) => {
+    const raw = document.getElementById(id).value.trim();
+    if (!raw) return null;
+    const v = parseInt(raw, 10);
+    if (isNaN(v) || v < 0 || v > max) { throw new Error(`Valeur invalide pour ce champ (0-${max} attendu).`); }
+    return v;
+  };
+  let payload;
+  try {
+    payload = {
+      score_brand_fit: readScore('scBrandFit', 25),
+      score_content_quality: readScore('scContentQuality', 20),
+      score_engagement: readScore('scEngagement', 20),
+      score_audience_relevance: readScore('scAudienceRelevance', 15),
+      score_reliability: readScore('scReliability', 10),
+      score_commercial_potential: readScore('scCommercialPotential', 10),
+      relationship_status: document.getElementById('scRelationshipStatus').value.trim() || null,
+      next_action: document.getElementById('scNextAction').value.trim() || null,
+      owner: document.getElementById('scOwner').value.trim() || null,
+    };
+  } catch (err) {
+    toast(err.message, true);
+    return;
+  }
+  try {
+    const data = await api('/api/relations/' + relationId + '/score', { method: 'PATCH', body: payload });
+    closeScoreModal();
+    if (state.linkedProfile) { state.linkedProfile.relation = data.relation; }
+    renderInfluenceBox();
+    renderTicketList();
+    toast(`Note enregistrée : ${data.relation.score_total}/100.`);
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
   }
 }
 
@@ -1725,6 +1846,14 @@ document.getElementById('epCancel').onclick = closeEditProfileModal;
 document.getElementById('epSave').onclick = saveProfileEdits;
 document.getElementById('editProfileModal').addEventListener('click', (e) => {
   if (e.target.id === 'editProfileModal') closeEditProfileModal();
+});
+document.getElementById('scCancel').onclick = closeScoreModal;
+document.getElementById('scSave').onclick = saveScore;
+document.getElementById('scoreModal').addEventListener('click', (e) => {
+  if (e.target.id === 'scoreModal') closeScoreModal();
+});
+Object.keys(SCORE_FIELD_MAX).forEach((id) => {
+  document.getElementById(id).addEventListener('input', updateScoreTotalPreview);
 });
 document.getElementById('addStatusBtn').onclick = () => addOption('status', 'newStatusInput');
 document.getElementById('addCategoryBtn').onclick = () => addOption('category', 'newCategoryInput');
