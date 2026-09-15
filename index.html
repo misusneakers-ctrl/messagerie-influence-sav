@@ -158,6 +158,23 @@
   .modal-backdrop.open{display:flex;}
   .modal{background:#fff;border-radius:10px;padding:20px;width:420px;max-width:92vw;max-height:86vh;overflow-y:auto;}
   .modal.modal-wide{width:600px;}
+  .modal.modal-xwide{width:920px;}
+  /* Correctif 2026-09-15 (9e passage), fiche influenceuse détaillée façon Stellar.io */
+  .profile-detail-header{display:flex;gap:14px;align-items:flex-start;margin-bottom:14px;}
+  .profile-detail-avatar{width:64px;height:64px;border-radius:50%;object-fit:cover;flex-shrink:0;}
+  .profile-detail-avatar-placeholder{width:64px;height:64px;border-radius:50%;background:#f1f0fe;
+    display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;}
+  .profile-detail-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:14px 0;}
+  .profile-detail-stat{background:#f8f8fb;border-radius:8px;padding:8px 10px;}
+  .profile-detail-stat .label{font-size:11px;color:var(--muted);}
+  .profile-detail-stat .value{font-size:16px;font-weight:600;}
+  .posts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px;}
+  .post-card{border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;}
+  .post-card img{width:100%;height:150px;object-fit:cover;background:#f1f0fe;display:block;}
+  .post-card .post-body{padding:6px 8px;font-size:11.5px;color:var(--muted);}
+  .post-card .post-stats{display:flex;gap:8px;font-size:12px;color:#1a1a1a;margin-bottom:2px;}
+  .post-card a{color:var(--accent);text-decoration:none;}
+  .unavailable-note{background:#fef3c7;color:#92400e;border-radius:8px;padding:8px 10px;font-size:12px;margin-top:14px;}
   .modal h3{margin:0 0 12px;font-size:15px;}
   .modal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;}
   .modal input, .modal select, .modal textarea{width:100%;padding:7px 9px;border:1px solid var(--border);
@@ -398,6 +415,14 @@ fake followers" déjà présent dans le panneau pour informer la note
       <button class="btn btn-primary" id="scSave">Enregistrer</button>
     </div>
   </div>
+</div>
+
+<!-- Correctif 2026-09-15 (9e passage), demandé par Luc, inspiré de
+Stellar.io : fiche influenceuse détaillée en grand format — stats en un
+coup d'œil + grille des 15 derniers posts (vignette, likes, commentaires,
+date, lien). Contenu généré dynamiquement par openProfileDetailModal(). -->
+<div class="modal-backdrop" id="profileDetailModal">
+  <div class="modal modal-xwide" id="profileDetailContent"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -783,6 +808,7 @@ function renderInfluenceBox() {
         <div style="display:flex;flex-direction:column;gap:6px;">
           <button class="btn" id="editProfileBtn">✎ Éditer</button>
           <button class="btn" id="scoreProfileBtn">📊 Noter</button>
+          <button class="btn" id="profileDetailBtn">📋 Fiche complète</button>
           ${acc.instagram_handle ? '<button class="btn" id="syncProfileBtn">🔄 Synchroniser</button>' : ''}
           <button class="btn" id="unlinkProfileBtn">Délier</button>
         </div>
@@ -791,6 +817,7 @@ function renderInfluenceBox() {
     document.getElementById('unlinkProfileBtn').onclick = () => patchTicket({ influence_relation_id: null });
     document.getElementById('editProfileBtn').onclick = () => openEditProfileModal(acc);
     document.getElementById('scoreProfileBtn').onclick = () => openScoreModal(rel);
+    document.getElementById('profileDetailBtn').onclick = () => openProfileDetailModal(acc, rel);
     const syncBtn = document.getElementById('syncProfileBtn');
     if (syncBtn) syncBtn.onclick = () => syncInfluenceProfile(acc.id, syncBtn);
   } else if (t.influence_relation_id) {
@@ -882,6 +909,94 @@ async function saveScore() {
   } catch (err) {
     toast('Erreur : ' + err.message, true);
   }
+}
+
+// ---------- Fiche influenceuse détaillée (correctif 2026-09-15, 9e passage) ----------
+// Demandé par Luc en montrant Stellar.io : une fiche plus grande et visuelle
+// avec les derniers posts (vignette, likes, commentaires…), fréquence de
+// publication, etc. Honnêteté sur les limites : répartition homme/femme,
+// répartition géographique de l'AUDIENCE et score d'authenticité façon
+// Stellar ne sont PAS reconstructibles depuis l'API Meta pour un compte
+// tiers (voir la discussion précédente sur les fake followers/genre) — la
+// fiche le rappelle plutôt que de faire semblant. Ce qui EST repris de
+// Stellar et réellement disponible : followers, engagement, derniers posts
+// avec likes/commentaires/date/lien, fréquence de publication, et une
+// répartition photo/carrousel vs vidéo (proxy "reels" le plus proche
+// possible sans accès à media_product_type, réservé aux comptes qu'on
+// possède).
+function fmtPostDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function openProfileDetailModal(acc, rel) {
+  const posts = Array.isArray(acc.last_posts) ? acc.last_posts : [];
+  const followers = fmtFollowers(acc.follower_count);
+  const engagement = acc.engagement_observed != null ? `${Number(acc.engagement_observed).toFixed(1)}%` : '—';
+  const avgLikes = posts.length ? Math.round(posts.reduce((s, p) => s + (p.like_count || 0), 0) / posts.length) : null;
+  const avgComments = posts.length ? Math.round(posts.reduce((s, p) => s + (p.comments_count || 0), 0) / posts.length) : null;
+  const videoCount = posts.filter((p) => p.media_type === 'VIDEO').length;
+  const photoCount = posts.length - videoCount;
+  const fakeFollowerCheckUrl = acc.instagram_handle ? `https://hypeauditor.com/instagram/${encodeURIComponent(acc.instagram_handle)}/` : null;
+
+  const statsHtml = `
+    <div class="profile-detail-stats-grid">
+      <div class="profile-detail-stat"><div class="label">Followers</div><div class="value">${followers || '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Engagement</div><div class="value">${engagement}</div></div>
+      <div class="profile-detail-stat"><div class="label">Score qualité</div><div class="value">${rel.score_total ?? 0}/100</div></div>
+      <div class="profile-detail-stat"><div class="label">Fréquence de post</div><div class="value">${acc.posting_frequency_days != null ? `~${acc.posting_frequency_days} j` : '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Likes moy. / post</div><div class="value">${avgLikes ?? '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Commentaires moy.</div><div class="value">${avgComments ?? '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Photos / carrousels</div><div class="value">${posts.length ? photoCount : '—'}</div></div>
+      <div class="profile-detail-stat"><div class="label">Vidéos (proxy reels)</div><div class="value">${posts.length ? videoCount : '—'}</div></div>
+    </div>
+  `;
+
+  const postsHtml = posts.length > 0 ? `
+    <h3 style="margin-top:18px;">Derniers posts (${posts.length})</h3>
+    <div class="posts-grid">
+      ${posts.map((p) => `
+        <div class="post-card">
+          <img src="${escapeHtml(p.thumbnail_url || p.media_url || '')}" alt=""
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+          <div style="display:none;height:150px;align-items:center;justify-content:center;background:#f1f0fe;font-size:11px;color:var(--muted);text-align:center;padding:6px;">Vignette expirée<br>(voir le lien ↓)</div>
+          <div class="post-body">
+            <div class="post-stats">❤️ ${p.like_count ?? 0} · 💬 ${p.comments_count ?? 0}</div>
+            <div>${fmtPostDate(p.timestamp)}${p.media_type === 'VIDEO' ? ' · 🎬' : ''}</div>
+            ${p.permalink ? `<a href="${escapeHtml(p.permalink)}" target="_blank" rel="noopener">Voir le post ↗</a>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  ` : `<div class="info" style="color:var(--muted);margin-top:14px;">Aucun post récupéré — clique sur "🔄 Synchroniser" d'abord.</div>`;
+
+  document.getElementById('profileDetailContent').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div class="profile-detail-header">
+        ${acc.profile_picture_url
+          ? `<img class="profile-detail-avatar" src="${escapeHtml(acc.profile_picture_url)}" alt="" />`
+          : `<div class="profile-detail-avatar-placeholder">👤</div>`}
+        <div>
+          <h3 style="margin:0;">${escapeHtml(acc.display_name)}</h3>
+          ${acc.instagram_handle ? `<div style="font-size:13px;">${acc.instagram_url ? `<a href="${escapeHtml(acc.instagram_url)}" target="_blank" rel="noopener">@${escapeHtml(acc.instagram_handle)} ↗</a>` : '@' + escapeHtml(acc.instagram_handle)}</div>` : ''}
+          ${acc.instagram_synced_at ? `<div style="font-size:11px;color:var(--muted);">Synchronisé le ${fmtDate(acc.instagram_synced_at)}</div>` : ''}
+        </div>
+      </div>
+      <button class="btn" id="pdCloseBtn">✕</button>
+    </div>
+    ${statsHtml}
+    <div class="unavailable-note">
+      ⚠️ Non disponible via l'API Instagram pour un compte tiers, quelle que soit la marque : répartition homme/femme de l'audience,
+      répartition géographique de l'audience, score d'authenticité automatisé. Pour un vrai check anti-fake-followers, gratuit mais
+      manuel : ${fakeFollowerCheckUrl ? `<a href="${escapeHtml(fakeFollowerCheckUrl)}" target="_blank" rel="noopener">HypeAuditor ↗</a>` : 'renseigne un handle Instagram pour avoir le lien'}.
+    </div>
+    ${postsHtml}
+  `;
+  document.getElementById('pdCloseBtn').onclick = closeProfileDetailModal;
+  document.getElementById('profileDetailModal').classList.add('open');
+}
+function closeProfileDetailModal() {
+  document.getElementById('profileDetailModal').classList.remove('open');
 }
 
 // ---------- Édition manuelle du profil influence (correctif 2026-09-15) ----------
@@ -1900,6 +2015,9 @@ document.getElementById('scCancel').onclick = closeScoreModal;
 document.getElementById('scSave').onclick = saveScore;
 document.getElementById('scoreModal').addEventListener('click', (e) => {
   if (e.target.id === 'scoreModal') closeScoreModal();
+});
+document.getElementById('profileDetailModal').addEventListener('click', (e) => {
+  if (e.target.id === 'profileDetailModal') closeProfileDetailModal();
 });
 Object.keys(SCORE_FIELD_MAX).forEach((id) => {
   document.getElementById(id).addEventListener('input', updateScoreTotalPreview);
