@@ -26,12 +26,18 @@ const META_APP_ID = '1776379956832524';
 // Paramètres > URI de redirection OAuth valides (déjà fait le 15/09/2026).
 const REDIRECT_URI = 'https://messagerie-influence-sav.vercel.app/api/profiles/facebook-callback';
 
-// Permissions déjà ajoutées côté Meta (cas d'utilisation "API Instagram" >
-// "Configuration de l'API avec la connexion Facebook") le 15/09/2026.
+// Correctif 2026-09-15 (2e passage) : la première version demandait aussi
+// instagram_content_publishing et instagram_manage_messages (listées comme
+// "requises" dans le tableau de bord Meta pour le cas d'utilisation
+// complet), mais Facebook a refusé la demande avec "Invalid Scope:
+// instagram_content_publishing" au moment de l'autorisation — ces deux
+// permissions ne sont accordables qu'après un Contrôle app (App Review)
+// plus poussé, non fait, et de toute façon inutiles ici : on ne fait QUE de
+// la lecture publique (Business Discovery), jamais de publication ni
+// d'envoi de message via ce token-là. On ne demande donc que le strict
+// nécessaire pour lire les stats publiques d'un compte tiers.
 const SCOPES = [
   'instagram_basic',
-  'instagram_content_publishing',
-  'instagram_manage_messages',
   'pages_read_engagement',
   'pages_show_list',
   'business_management',
