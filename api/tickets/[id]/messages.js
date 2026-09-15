@@ -33,8 +33,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       sendJson(res, 400, { error: 'direction_must_be_inbound_or_outbound' });
       return;
     }
-    if (!body.body) {
-      sendJson(res, 400, { error: 'body_required' });
+    // Correctif 2026-09-15 (pièce jointe sortante) : un message peut
+    // désormais être composé d'une pièce jointe SEULE (ex. une étiquette de
+    // transport sans commentaire), pas uniquement de texte — on exige donc
+    // au moins l'un des deux plutôt que `body.body` systématiquement.
+    const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+    if (!body.body && attachments.length === 0) {
+      sendJson(res, 400, { error: 'body_or_attachments_required' });
       return;
     }
 
@@ -73,10 +78,10 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
 
         const status = body.direction === 'inbound' ? 'received' : 'draft';
         const { rows } = await client.query(
-          `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, body, status, external_message_id)
-           VALUES ($1,$2,$3,$4,$5,$6)
+          `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, body, status, external_message_id, attachments)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
            RETURNING *`,
-          [tenant.id, ticketId, body.direction, body.body, status, body.external_message_id || null]
+          [tenant.id, ticketId, body.direction, body.body || '', status, body.external_message_id || null, JSON.stringify(attachments)]
         );
         const messageRow = rows[0];
 
@@ -85,7 +90,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           action: body.direction === 'inbound' ? 'message_received' : 'draft_created',
           entityType: 'ticket_message',
           entityId: messageRow.id,
-          details: { ticket_id: ticketId },
+          details: { ticket_id: ticketId, has_attachments: attachments.length > 0 },
         });
 
         return messageRow;
