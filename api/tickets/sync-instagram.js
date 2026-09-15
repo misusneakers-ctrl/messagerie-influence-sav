@@ -194,6 +194,19 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           });
         }
 
+        // Correctif 2026-09-15 (date affichée dans la liste des tickets) :
+        // avant ce correctif, `UPDATE tickets SET updated_at = now()` était
+        // exécuté ici pour CHAQUE conversation scannée, même quand aucun
+        // message n'y était réellement nouveau — donc tous les tickets d'un
+        // même sondage se retrouvaient avec exactement le même updated_at
+        // (l'heure du sondage), ce qui expliquait l'heure identique "19:34"
+        // sur tous les tickets dans la liste, sans rapport avec le moment où
+        // un message a vraiment été envoyé/reçu. On ne touche désormais
+        // updated_at que si au moins un message a réellement été inséré pour
+        // ce ticket, et on le pose à la date du DERNIER message importé
+        // (pas à "now()") pour qu'il reflète le vrai moment de l'échange.
+        let insertedForTicket = 0;
+        let latestMessageAt = null;
         for (const message of messages) {
           const { rows: existingMsgRows } = await client.query(
             `SELECT id FROM ticket_messages WHERE tenant_id = $1 AND external_message_id = $2`,
@@ -218,6 +231,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           // son défaut '[]'::jsonb), y compris pour un message contenant
           // réellement une image ou une vidéo, faute pour instagram-read.js
           // de demander ce champ à l'API (voir correctif dans ce fichier-là).
+          const messageCreatedAt = message.created_time || new Date().toISOString();
           await client.query(
             `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, status, body, external_message_id, created_at, attachments)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -228,14 +242,20 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
               status,
               message.message || '',
               message.id,
-              message.created_time || new Date().toISOString(),
+              messageCreatedAt,
               JSON.stringify(message.attachments || []),
             ]
           );
           summary.messages_created += 1;
+          insertedForTicket += 1;
+          if (!latestMessageAt || new Date(messageCreatedAt) > new Date(latestMessageAt)) {
+            latestMessageAt = messageCreatedAt;
+          }
         }
 
-        await client.query(`UPDATE tickets SET updated_at = now() WHERE id = $1`, [ticket.id]);
+        if (insertedForTicket > 0) {
+          await client.query(`UPDATE tickets SET updated_at = $2 WHERE id = $1`, [ticket.id, latestMessageAt]);
+        }
       });
     } catch (err) {
       summary.errors.push({ conversation_id: conversation.id, error: err.message });
