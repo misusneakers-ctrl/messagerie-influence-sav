@@ -12,6 +12,32 @@ const { decrypt } = require('../../lib/crypto');
 const { logAudit } = require('../../lib/audit');
 const instagramRead = require('../../lib/channels/instagram-read');
 
+// Correctif 2026-09-15 : les messages de chaque conversation étaient
+// récupérés un par un, en série (un aller-retour Instagram par
+// conversation, attendu avant de passer au suivant) — avec la lecture de
+// TOUTES les conversations (correctif précédent, plus seulement les 25
+// premières), ça a fait grimper la durée totale du sondage à plusieurs
+// minutes, au point de sembler "bloqué" dans l'appli. On lance maintenant
+// ces appels par petits groupes en parallèle (CONCURRENCY à la fois) plutôt
+// qu'un par un — même volume d'appels réseau, mais beaucoup moins de temps
+// d'attente cumulé.
+const CONCURRENCY = 5;
+
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await fn(items[current], current);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'method_not_allowed' });
@@ -81,7 +107,38 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     errors: [],
   };
 
-  for (const conversation of conversations) {
+  // Étape 1 : récupérer les messages de toutes les conversations en
+  // parallèle (par lots de CONCURRENCY), au lieu d'un aller-retour Instagram
+  // séquentiel par conversation — c'est cette étape qui dominait la durée
+  // totale du sondage.
+  const messagesByConversation = await mapWithConcurrency(
+    conversations,
+    CONCURRENCY,
+    async (conversation) => {
+      try {
+        const messages = await instagramRead.getConversationMessages({
+          accessToken,
+          conversationId: conversation.id,
+        });
+        return { conversation, messages, error: null };
+      } catch (err) {
+        return { conversation, messages: null, error: err };
+      }
+    }
+  );
+
+  // Étape 2 : écrire en base, conversation par conversation, dans l'ordre
+  // (le plus récent en premier — voir le tri par updated_time dans
+  // lib/channels/instagram-read.js). Les écritures DB restent séquentielles
+  // ici : chaque conversation ne fait qu'un aller-retour Postgres, largement
+  // plus rapide qu'un aller-retour Instagram, donc paralléliser cette partie
+  // n'aurait apporté qu'un gain marginal pour plus de complexité (risque de
+  // conflits de transaction).
+  for (const { conversation, messages, error } of messagesByConversation) {
+    if (error) {
+      summary.errors.push({ conversation_id: conversation.id, error: error.message });
+      continue;
+    }
     try {
       const participants = (conversation.participants && conversation.participants.data) || [];
       const contactParticipant = participants.find((p) => p.username !== businessUsername);
@@ -92,10 +149,6 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       // — sert à déterminer le sens (inbound/outbound) des messages plus bas.
       const businessParticipantId = businessParticipant ? businessParticipant.id : null;
 
-      const messages = await instagramRead.getConversationMessages({
-        accessToken,
-        conversationId: conversation.id,
-      });
       if (messages.length === 0) continue;
 
       await withTenant(tenant.id, async (client) => {
