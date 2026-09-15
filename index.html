@@ -123,7 +123,14 @@
     border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;}
   .composer .row{display:flex;justify-content:space-between;margin-top:8px;align-items:center;flex-wrap:wrap;gap:8px;}
   .composer .hint{font-size:11.5px;color:var(--muted);flex:1;min-width:200px;}
-  .composer .row .composer-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .composer .row .composer-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  /* Correctif 2026-09-15 (pièce jointe sortante) */
+  .composer .attach-btn{background:none;border:1px solid var(--border);border-radius:8px;width:34px;height:34px;
+    font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text);}
+  .composer .attach-btn:hover{background:var(--bg);}
+  .composer .attach-preview{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);
+    border-radius:8px;padding:4px 8px;font-size:12px;margin-top:6px;max-width:fit-content;}
+  .composer .attach-preview .remove{cursor:pointer;color:var(--red);font-weight:bold;padding:0 2px;}
 
   .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;
     align-items:center;justify-content:center;z-index:50;}
@@ -311,6 +318,7 @@ const state = {
   selectedTicket: null,
   messages: [],
   linkedProfile: null,
+  pendingAttachment: null, // {type:'image'|'video'|'file', url, filename} en attente d'envoi — correctif 2026-09-15
   categories: [], // [{id,label,sort_order,is_default}]
   statuses: [],
   queue: {
@@ -556,9 +564,12 @@ async function renderDetail() {
     <div class="thread" id="thread"></div>
     <div class="composer">
       <textarea id="composerInput" placeholder="Écrire une réponse…"></textarea>
+      <div id="attachPreviewBox"></div>
       <div class="row">
-        <div class="hint">« Enregistrer le brouillon » passe par la file de validation. « Envoyer directement » valide et envoie en un geste — utile pour une réponse déjà écrite à la main ; si l'envoi échoue (hors fenêtre 24h, canal non configuré…), le message reste enregistré comme brouillon, à valider depuis la file de validation.</div>
+        <div class="hint">« Enregistrer le brouillon » passe par la file de validation. « Envoyer directement » valide et envoie en un geste — utile pour une réponse déjà écrite à la main ; si l'envoi échoue (hors fenêtre 24h, canal non configuré…), le message reste enregistré comme brouillon, à valider depuis la file de validation. Pièce jointe (image, vidéo ou PDF — ex. étiquette de transport) : jointe au message, envoyée en plus du texte si les deux sont renseignés.</div>
         <div class="composer-actions">
+          <input type="file" id="attachmentFileInput" accept="image/*,video/mp4,video/quicktime,application/pdf" style="display:none;" />
+          <button class="attach-btn" id="attachBtn" title="Joindre un fichier">📎</button>
           <button class="btn" id="draftBtn">Enregistrer le brouillon</button>
           <button class="btn btn-primary" id="sendDirectBtn">Envoyer directement</button>
         </div>
@@ -572,6 +583,10 @@ async function renderDetail() {
   document.getElementById('assignedInput').onblur = (e) => patchTicket({ assigned_to: e.target.value });
   document.getElementById('draftBtn').onclick = createDraft;
   document.getElementById('sendDirectBtn').onclick = sendDirectly;
+  document.getElementById('attachBtn').onclick = () => document.getElementById('attachmentFileInput').click();
+  document.getElementById('attachmentFileInput').onchange = (e) => handleAttachmentFileSelected(e.target.files[0]);
+  state.pendingAttachment = null;
+  renderAttachPreview();
   document.getElementById('archiveBtn').onclick = toggleArchiveTicket;
   document.getElementById('deleteTicketBtn').onclick = deleteTicketConfirm;
   document.getElementById('createProfileLink').onclick = (e) => { e.preventDefault(); openCreateProfileModal(); };
@@ -794,16 +809,83 @@ function renderThread() {
   });
 }
 
+// ---------- Pièce jointe sortante (correctif 2026-09-15) ----------
+// Ex. : joindre une étiquette de transport (PDF) ou une photo à une réponse.
+// Upload immédiat vers le stockage (Vercel Blob, via /api/uploads/attachment)
+// dès que le fichier est choisi ; l'URL obtenue est ensuite envoyée avec le
+// message (brouillon ou envoi direct), comme une pièce jointe entrante.
+const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024; // 4 Mo — voir limite côté api/uploads/attachment.js
+
+function renderAttachPreview() {
+  const box = document.getElementById('attachPreviewBox');
+  if (!box) return;
+  const a = state.pendingAttachment;
+  if (!a) { box.innerHTML = ''; return; }
+  const icon = a.type === 'image' ? '🖼️' : a.type === 'video' ? '🎞️' : '📎';
+  box.innerHTML = `
+    <div class="attach-preview">
+      <span>${icon} ${escapeHtml(a.filename || 'pièce jointe')}</span>
+      <span class="remove" id="removeAttachBtn" title="Retirer">✕</span>
+    </div>
+  `;
+  document.getElementById('removeAttachBtn').onclick = () => {
+    state.pendingAttachment = null;
+    renderAttachPreview();
+  };
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]); // enlève le préfixe data:...;base64,
+    reader.onerror = () => reject(new Error('read_failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleAttachmentFileSelected(file) {
+  const input = document.getElementById('attachmentFileInput');
+  if (!file) return;
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    toast('Fichier trop volumineux (max 4 Mo).', true);
+    if (input) input.value = '';
+    return;
+  }
+  const attachBtn = document.getElementById('attachBtn');
+  const originalLabel = attachBtn.textContent;
+  attachBtn.disabled = true;
+  attachBtn.textContent = '…';
+  try {
+    const content_base64 = await fileToBase64(file);
+    const result = await api('/api/uploads/attachment', {
+      method: 'POST',
+      body: { filename: file.name, content_type: file.type, content_base64 },
+    });
+    state.pendingAttachment = { type: result.type, url: result.url, filename: file.name };
+    renderAttachPreview();
+    toast('Pièce jointe prête — elle partira avec le prochain message.');
+  } catch (err) {
+    toast('Erreur pièce jointe : ' + err.message, true);
+  } finally {
+    attachBtn.disabled = false;
+    attachBtn.textContent = originalLabel;
+    if (input) input.value = '';
+  }
+}
+
 async function createDraft() {
   const input = document.getElementById('composerInput');
   const body = input.value.trim();
-  if (!body) return;
+  const attachments = state.pendingAttachment ? [state.pendingAttachment] : [];
+  if (!body && attachments.length === 0) return;
   try {
     await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
       method: 'POST',
-      body: { direction: 'outbound', body },
+      body: { direction: 'outbound', body, attachments },
     });
     input.value = '';
+    state.pendingAttachment = null;
+    renderAttachPreview();
     await refreshSelectedTicket();
     toast('Brouillon enregistré.');
   } catch (err) {
@@ -821,7 +903,8 @@ async function createDraft() {
 async function sendDirectly() {
   const input = document.getElementById('composerInput');
   const body = input.value.trim();
-  if (!body) return;
+  const attachments = state.pendingAttachment ? [state.pendingAttachment] : [];
+  if (!body && attachments.length === 0) return;
   const approvedBy = window.prompt('Envoyer ce message directement en tant que :', 'Luc');
   if (!approvedBy) return;
 
@@ -833,7 +916,7 @@ async function sendDirectly() {
   try {
     const draftData = await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
       method: 'POST',
-      body: { direction: 'outbound', body },
+      body: { direction: 'outbound', body, attachments },
     });
     messageId = draftData.message.id;
 
@@ -848,6 +931,8 @@ async function sendDirectly() {
     });
 
     input.value = '';
+    state.pendingAttachment = null;
+    renderAttachPreview();
     await refreshSelectedTicket();
     toast('Message envoyé.');
   } catch (err) {
