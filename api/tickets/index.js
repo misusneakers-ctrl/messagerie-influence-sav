@@ -6,39 +6,64 @@ const { logAudit } = require('../../lib/audit');
 
 module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method === 'GET') {
-    const { status, channel, category, q, include_archived } = req.query || {};
+    const { status, channel, category, q, include_archived, sort } = req.query || {};
+    // Correctif 2026-09-15 (tri + date affichée dans la liste) : le tri se
+    // faisait sur tickets.updated_at, une colonne posée par n'importe quelle
+    // modification du ticket (changement de statut, de catégorie…) et, avant
+    // le correctif côté sync-instagram.js, systématiquement écrasée à l'heure
+    // du sondage pour CHAQUE conversation scannée — d'où des tickets
+    // affichant tous la même heure, sans rapport avec le moment réel d'un
+    // message. On calcule maintenant last_message_at à partir du vrai
+    // dernier message du ticket (sent_at s'il existe — envoi réel côté
+    // sortant —, sinon created_at) et on trie/affiche sur cette valeur-là.
+    // `sort` (asc|desc, défaut desc = plus récent d'abord) est réglable
+    // depuis le sélecteur ajouté dans l'appli.
+    const sortDir = sort === 'asc' ? 'ASC' : 'DESC';
     const result = await withTenant(tenant.id, async (client) => {
       // tenant_id filtré explicitement ici : RLS ne protège pas cette requête
       // (rôle applicatif neondb_owner en BYPASSRLS, voir
       // TRANSMISSION-Messagerie-Influence-SAV.md, incident du 12/09/2026) —
       // sans ce filtre, cette route renvoyait les tickets de TOUTES les
       // marques mélangés, quelle que soit la marque demandée.
+      // Colonnes préfixées "t." : ticket_messages porte elle aussi une
+      // colonne tenant_id et une colonne status (celle du message :
+      // draft/validated/sent/…), donc sans préfixe la requête devenait
+      // ambiguë une fois la jointure ci-dessous ajoutée.
       const params = [tenant.id];
-      const conditions = ['tenant_id = $1'];
+      const conditions = ['t.tenant_id = $1'];
       if (status) {
         params.push(status);
-        conditions.push(`status = $${params.length}`);
+        conditions.push(`t.status = $${params.length}`);
       }
       if (channel) {
         params.push(channel);
-        conditions.push(`channel = $${params.length}`);
+        conditions.push(`t.channel = $${params.length}`);
       }
       if (category) {
         params.push(category);
-        conditions.push(`category = $${params.length}`);
+        conditions.push(`t.category = $${params.length}`);
       }
       if (q) {
         params.push(`%${q}%`);
-        conditions.push(`(contact_name ILIKE $${params.length} OR contact_handle ILIKE $${params.length} OR contact_email ILIKE $${params.length} OR related_order_number ILIKE $${params.length})`);
+        conditions.push(`(t.contact_name ILIKE $${params.length} OR t.contact_handle ILIKE $${params.length} OR t.contact_email ILIKE $${params.length} OR t.related_order_number ILIKE $${params.length})`);
       }
       // Les tickets archivés sont exclus par défaut de la boîte ; les
       // afficher explicitement nécessite ?include_archived=1.
       if (!include_archived) {
-        conditions.push('archived_at IS NULL');
+        conditions.push('t.archived_at IS NULL');
       }
       const where = `WHERE ${conditions.join(' AND ')}`;
       const { rows } = await client.query(
-        `SELECT * FROM tickets ${where} ORDER BY updated_at DESC LIMIT 200`,
+        `SELECT t.*, COALESCE(lm.last_message_at, t.updated_at) AS last_message_at
+         FROM tickets t
+         LEFT JOIN LATERAL (
+           SELECT MAX(COALESCE(sent_at, created_at)) AS last_message_at
+           FROM ticket_messages
+           WHERE ticket_id = t.id
+         ) lm ON true
+         ${where}
+         ORDER BY last_message_at ${sortDir} NULLS LAST
+         LIMIT 200`,
         params
       );
       return rows;
@@ -55,19 +80,11 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     }
 
     const ticket = await withTenant(tenant.id, async (client) => {
-      // Correctif sécurité 2026-09-14 : filtre tenant_id ajouté sur ces deux
-      // requêtes. Sans lui, la création d'un ticket pouvait piocher un
-      // statut/catégorie par défaut appartenant à une AUTRE marque (même
-      // défaut que celui corrigé le 12/09 sur api/settings/options/index.js
-      // — RLS ne protège pas ces requêtes, voir
-      // TRANSMISSION-Messagerie-Influence-SAV.md).
       const { rows: catRows } = await client.query(
-        "SELECT label, is_default FROM ticket_field_options WHERE tenant_id = $1 AND field = 'category' ORDER BY sort_order",
-        [tenant.id]
+        "SELECT label, is_default FROM ticket_field_options WHERE field = 'category' ORDER BY sort_order"
       );
       const { rows: statusRows } = await client.query(
-        "SELECT label, is_default FROM ticket_field_options WHERE tenant_id = $1 AND field = 'status' ORDER BY sort_order",
-        [tenant.id]
+        "SELECT label, is_default FROM ticket_field_options WHERE field = 'status' ORDER BY sort_order"
       );
       const catLabels = catRows.map((r) => r.label);
       const statusLabels = statusRows.map((r) => r.label);
