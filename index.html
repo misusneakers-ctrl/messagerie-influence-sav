@@ -238,6 +238,7 @@
   <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
   <button class="btn" id="connectFacebookBtn">🔗 Connecter Facebook</button>
   <button class="btn" id="autoLinkInfluenceBtn" title="Lie automatiquement un profil influence (créé si besoin) à tous les tickets Instagram qui n'en ont pas encore, à partir du handle du contact.">🔗 Lier tous les profils Instagram</button>
+  <button class="btn" id="syncAllBusinessBtn" title="Va chercher followers/engagement/tags pour TOUS les profils influence liés à cette marque qui n'ont pas encore leurs infos (ou pour les rafraîchir). Nécessite Facebook connecté pour cette marque.">🔄 Synchroniser tous les profils</button>
   <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
 </header>
 
@@ -1773,6 +1774,54 @@ async function autoLinkInfluence() {
   }
 }
 document.getElementById('autoLinkInfluenceBtn').onclick = autoLinkInfluence;
+
+// Correctif 2026-09-15 (8e passage), demandé par Luc : "tout le monde était
+// lié sur Instagram, mais ça ne récupère pas les informations de tout le
+// monde" — jusqu'ici il fallait cliquer "🔄 Synchroniser" profil par profil
+// dans chaque ticket. Ce bouton synchronise tous les profils liés à la
+// marque active en un coup, avec un chrono affiché comme pour "Actualiser
+// Instagram" car ça peut prendre du temps selon le nombre de profils.
+const SYNC_ALL_TIMEOUT_MS = 180000;
+async function syncAllBusinessProfiles() {
+  const btn = document.getElementById('syncAllBusinessBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  const startedAt = Date.now();
+  btn.textContent = 'Synchro… (0s)';
+  const tickInterval = setInterval(() => {
+    btn.textContent = `Synchro… (${Math.round((Date.now() - startedAt) / 1000)}s)`;
+  }, 1000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYNC_ALL_TIMEOUT_MS);
+  try {
+    const data = await api('/api/profiles/sync-all-business', { method: 'POST', signal: controller.signal });
+    if (data.total === 0) {
+      toast('Aucun profil influence à synchroniser pour cette marque.');
+    } else {
+      const parts = [`${data.synced}/${data.total} profil${data.total > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}`];
+      if (data.failed > 0) parts.push(`${data.failed} en erreur`);
+      toast(parts.join(', ') + '.', data.failed > 0);
+      if (data.failed > 0) {
+        console.warn('Erreurs de synchro en masse :', data.errors);
+      }
+    }
+    if (state.selectedTicket) await refreshSelectedTicket();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      toast('Ça prend plus de temps que prévu — réessaie dans un instant ; si ça persiste, préviens-moi.', true);
+    } else if (err.payload && err.payload.error === 'facebook_not_connected') {
+      toast('Connecte d\'abord Facebook pour cette marque (bouton "🔗 Connecter Facebook").', true);
+    } else {
+      toast('Erreur : ' + err.message, true);
+    }
+  } finally {
+    clearInterval(tickInterval);
+    clearTimeout(timeoutId);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+document.getElementById('syncAllBusinessBtn').onclick = syncAllBusinessProfiles;
 
 // ---------- Bascule Boîte / File de validation ----------
 function setView(view) {
