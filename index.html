@@ -236,6 +236,7 @@
   <button class="btn" id="archivedToggleBtn">📦 Archivés</button>
   <button class="btn" id="syncInstagramBtn">🔄 Actualiser Instagram</button>
   <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
+  <button class="btn" id="connectFacebookBtn">🔗 Connecter Facebook</button>
   <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
 </header>
 
@@ -714,15 +715,19 @@ function renderInfluenceBox() {
             ${acc.saved_story_url ? `<a href="${escapeHtml(acc.saved_story_url)}" target="_blank" rel="noopener">📸 story sauvegardée ↗</a>` : ''}
           </div>
           ${tags.length > 0 ? `<div class="profile-card-tags">${tags.map((tg) => `<span class="badge badge-cat">#${escapeHtml(tg)}</span>`).join('')}</div>` : ''}
+          ${acc.instagram_synced_at ? `<div style="font-size:11px;color:var(--muted);">Synchronisé le ${fmtDate(acc.instagram_synced_at)}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <button class="btn" id="editProfileBtn">✎ Éditer</button>
+          ${acc.instagram_handle ? '<button class="btn" id="syncProfileBtn">🔄 Synchroniser</button>' : ''}
           <button class="btn" id="unlinkProfileBtn">Délier</button>
         </div>
       </div>
     `;
     document.getElementById('unlinkProfileBtn').onclick = () => patchTicket({ influence_relation_id: null });
     document.getElementById('editProfileBtn').onclick = () => openEditProfileModal(acc);
+    const syncBtn = document.getElementById('syncProfileBtn');
+    if (syncBtn) syncBtn.onclick = () => syncInfluenceProfile(acc.id, syncBtn);
   } else if (t.influence_relation_id) {
     box.innerHTML = `<div class="info">🔗 Profil influence lié (chargement…)</div>`;
   } else {
@@ -775,6 +780,28 @@ async function saveProfileEdits() {
     toast('Profil mis à jour.');
   } catch (err) {
     toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function syncInfluenceProfile(accountId, btn) {
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Synchro…';
+  try {
+    await api('/api/profiles/' + accountId + '/sync-business', { method: 'POST' });
+    if (state.selectedTicket && state.selectedTicket.influence_relation_id) {
+      await loadLinkedProfile(state.selectedTicket.influence_relation_id);
+    }
+    toast('Profil synchronisé depuis Instagram.');
+  } catch (err) {
+    if (err.message && err.message.includes('facebook_not_connected')) {
+      toast('Connecte d\'abord Facebook pour cette marque (bouton "🔗 Connecter Facebook").', true);
+    } else {
+      toast('Erreur de synchro : ' + err.message, true);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
   }
 }
 
@@ -1628,6 +1655,9 @@ document.getElementById('newTicketModal').addEventListener('click', (e) => {
   if (e.target.id === 'newTicketModal') closeNewTicketModal();
 });
 document.getElementById('settingsBtn').onclick = openSettingsModal;
+document.getElementById('connectFacebookBtn').onclick = () => {
+  window.open('/api/profiles/facebook-login?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
+};
 document.getElementById('settingsCloseBtn').onclick = closeSettingsModal;
 document.getElementById('settingsModal').addEventListener('click', (e) => {
   if (e.target.id === 'settingsModal') closeSettingsModal();
