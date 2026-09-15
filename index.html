@@ -114,7 +114,20 @@
      l'entrant, droite pour le sortant, comme dans une messagerie classique)
      et on resserre légèrement les espacements verticaux pour un rendu plus
      dense, sans rien changer au regroupement par sens déjà en place plus bas. */
-  .msg{max-width:90%;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.4;white-space:pre-wrap;margin-bottom:6px;}
+  /* Correctif 2026-09-15 (10e passage), demandé par Luc : la bulle doit
+  épouser la taille du texte (comme WhatsApp/Messenger), pas occuper une
+  largeur fixe/disproportionnée. `align-self` seul (voir .msg.inbound/
+  .msg.outbound plus bas) suffit en théorie à faire "rétrécir" un item flex
+  à son contenu, mais en pratique le rendu restait large et carré pour un
+  texte court — `width:fit-content` force explicitement la bulle à ne
+  prendre que la largeur de son contenu (jusqu'à max-width), ce qui est le
+  comportement recherché. max-width abaissé de 90% à 75% au passage,
+  proportion plus proche de ce qu'utilisent WhatsApp/Messenger (une bulle
+  qui va presque d'un bord à l'autre du fil, même pour un texte long,
+  paraît disproportionnée dans l'autre sens).
+  min-width évite qu'un tout petit mot ("Ok", "👍") donne une bulle trop
+  écrasée/illisible. */
+  .msg{width:fit-content;max-width:75%;min-width:36px;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word;margin-bottom:6px;}
   .msg.inbound{align-self:flex-start;background:#f1f2f4;border-bottom-left-radius:2px;}
   .msg.outbound{align-self:flex-end;background:var(--accent-bg);border-bottom-right-radius:2px;}
   /* Regroupement "façon messagerie" : des messages consécutifs du même sens
