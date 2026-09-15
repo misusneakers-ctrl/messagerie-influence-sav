@@ -237,6 +237,7 @@
   <button class="btn" id="syncInstagramBtn">🔄 Actualiser Instagram</button>
   <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
   <button class="btn" id="connectFacebookBtn">🔗 Connecter Facebook</button>
+  <button class="btn" id="autoLinkInfluenceBtn" title="Lie automatiquement un profil influence (créé si besoin) à tous les tickets Instagram qui n'en ont pas encore, à partir du handle du contact.">🔗 Lier tous les profils Instagram</button>
   <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
 </header>
 
@@ -691,6 +692,26 @@ function renderInfluenceBox() {
     const followers = fmtFollowers(acc.follower_count);
     const engagement = acc.engagement_observed != null ? `${Number(acc.engagement_observed).toFixed(1)}%` : null;
     const tags = Array.isArray(acc.frequent_tags) ? acc.frequent_tags : [];
+    // Correctif 2026-09-15 (5e passage), demandé par Luc : comptes
+    // @mentionnés dans les légendes des posts, extraits par sync-business.js
+    // en même temps que les hashtags. Rappel de limite (voir aussi le lien
+    // "vérifier gratuitement" plus bas) : uniquement le texte des posts —
+    // les tags visuels posés directement sur une photo ne sont pas
+    // accessibles via l'API pour un compte tiers, Meta ne les expose pas.
+    const mentions = Array.isArray(acc.mentioned_accounts) ? acc.mentioned_accounts : [];
+    // Correctif 2026-09-15 (5e passage) : détection des fake/mass followers
+    // et répartition homme/femme des abonnés — Luc a demandé une solution
+    // gratuite. Meta n'expose AUCUNE de ces deux données via son API pour un
+    // compte tiers (pas de contournement possible), et il n'existe pas de
+    // service tiers proposant un accès API gratuit et automatisable pour
+    // autant. La seule option réellement gratuite est un outil web à usage
+    // manuel, un profil à la fois — on ouvre HypeAuditor (gratuit, sans
+    // compte requis pour un check ponctuel) pré-rempli avec le handle. La
+    // répartition homme/femme des abonnés, elle, n'a aucune solution
+    // gratuite, même manuelle — non proposée ici.
+    const fakeFollowerCheckUrl = acc.instagram_handle
+      ? `https://hypeauditor.com/instagram/${encodeURIComponent(acc.instagram_handle)}/`
+      : null;
     box.innerHTML = `
       <div class="profile-card">
         <img class="profile-avatar" src="${acc.profile_picture_url ? escapeHtml(acc.profile_picture_url) : ''}"
@@ -715,7 +736,9 @@ function renderInfluenceBox() {
             ${acc.saved_story_url ? `<a href="${escapeHtml(acc.saved_story_url)}" target="_blank" rel="noopener">📸 story sauvegardée ↗</a>` : ''}
           </div>
           ${tags.length > 0 ? `<div class="profile-card-tags">${tags.map((tg) => `<span class="badge badge-cat">#${escapeHtml(tg)}</span>`).join('')}</div>` : ''}
+          ${mentions.length > 0 ? `<div class="profile-card-tags">${mentions.map((m) => `<span class="badge badge-alert">@${escapeHtml(m)}</span>`).join('')}</div>` : ''}
           ${acc.instagram_synced_at ? `<div style="font-size:11px;color:var(--muted);">Synchronisé le ${fmtDate(acc.instagram_synced_at)}</div>` : ''}
+          ${fakeFollowerCheckUrl ? `<div style="font-size:11px;"><a href="${escapeHtml(fakeFollowerCheckUrl)}" target="_blank" rel="noopener">🔍 Vérifier fake followers (gratuit, outil externe) ↗</a></div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <button class="btn" id="editProfileBtn">✎ Éditer</button>
@@ -1602,6 +1625,33 @@ async function syncInstagram() {
   }
 }
 document.getElementById('syncInstagramBtn').onclick = syncInstagram;
+
+// Correctif 2026-09-15 (6e passage), demandé par Luc : bouton qui lie
+// automatiquement un profil influence (créé si besoin, à partir du handle
+// Instagram) à tous les tickets existants qui n'en ont pas encore — les
+// nouveaux tickets sont désormais liés automatiquement dès leur création
+// (voir sync-instagram.js), ce bouton sert surtout à rattraper l'existant.
+async function autoLinkInfluence() {
+  const btn = document.getElementById('autoLinkInfluenceBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Liaison…';
+  try {
+    const data = await api('/api/tickets/auto-link-influence', { method: 'POST' });
+    if (data.linked > 0) {
+      toast(`${data.linked} profil${data.linked > 1 ? 's' : ''} influence lié${data.linked > 1 ? 's' : ''} automatiquement.`);
+    } else {
+      toast('Rien à lier : tous les tickets Instagram ont déjà un profil influence.');
+    }
+    if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+document.getElementById('autoLinkInfluenceBtn').onclick = autoLinkInfluence;
 
 // ---------- Bascule Boîte / File de validation ----------
 function setView(view) {
