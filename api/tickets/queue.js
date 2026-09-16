@@ -3,6 +3,12 @@
 // tous les messages sortants encore en brouillon ("draft"), prêts à être
 // validés puis envoyés. Alimente les deux onglets Messagerie / Influence de
 // la file de validation côté front — ne modifie jamais rien.
+//
+// Ajout 2026-09-16 (brouillons IA) : chaque ligne indique aussi si le
+// brouillon a été rédigé par l'IA (ai_generated), avec ses alertes pour Luc
+// (ai_alerts : client mécontent, stock à vérifier, envoi à préparer...), sa
+// justification (ai_rationale), le résumé de la conversation (ai_summary) et
+// les coordonnées d'envoi reçues (shipping_details) quand il y en a.
 const { withTenantHandler, sendJson } = require('../../lib/handler');
 const { withTenant } = require('../../lib/db');
 const instagram = require('../../lib/channels/instagram');
@@ -23,8 +29,9 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       `SELECT
          t.id AS ticket_id, t.channel, t.category, t.status AS ticket_status,
          t.contact_name, t.contact_handle, t.contact_email, t.related_order_number,
-         t.influence_relation_id,
+         t.influence_relation_id, t.ai_analysis,
          tm.id AS message_id, tm.body AS message_body, tm.created_at AS message_created_at,
+         tm.ai_generated, tm.ai_meta,
          li.created_at AS last_inbound_at, li.body AS last_inbound_body,
          rel.score_total, rel.relationship_status
        FROM tickets t
@@ -56,6 +63,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       // n'est jamais traitable depuis cette vue.
       alerts.push('canal_non_implemente');
     }
+    const aiMeta = r.ai_meta || {};
+    const analysis = r.ai_analysis || {};
+    // Alertes IA : celles posées au moment de la rédaction du brouillon (on
+    // retire hors_fenetre_24h, déjà calculée ci-dessus en temps réel).
+    const aiAlerts = r.ai_generated
+      ? (Array.isArray(aiMeta.alerts) ? aiMeta.alerts : []).filter((a) => a && a.code !== 'hors_fenetre_24h')
+      : [];
     return {
       ticket_id: r.ticket_id,
       channel: r.channel,
@@ -76,6 +90,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       within_response_window: withinWindow,
       sendable: r.channel === 'instagram' && withinWindow === true,
       alerts,
+      ai_generated: !!r.ai_generated,
+      ai_alerts: aiAlerts,
+      ai_rationale: r.ai_generated ? aiMeta.rationale || null : null,
+      ai_summary: analysis.summary || null,
+      ai_sentiment: analysis.sentiment || null,
+      ai_register: analysis.register || null,
+      shipping_details: r.ai_generated ? aiMeta.shipping_details || null : null,
     };
   });
 
