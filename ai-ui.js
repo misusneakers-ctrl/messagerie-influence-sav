@@ -708,6 +708,72 @@
     });
   }
 
+  // ---------- E-mails de la boîte SAV (ajout 2026-09-17) ----------
+  // Importés en tickets juste après Instagram (même bouton « Actualiser »).
+  // Boîte non connectée : on ne dit rien (fonctionnalité optionnelle).
+  async function syncEmails() {
+    const btn = document.getElementById('syncInstagramBtn');
+    const original = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '📧 E-mails…'; }
+    try {
+      let total = { tickets_created: 0, messages_created: 0, errors: 0 };
+      for (let round = 0; round < 5; round++) {
+        const data = await api('/api/tickets/sync-email', { method: 'POST' });
+        total.tickets_created += data.tickets_created || 0;
+        total.messages_created += data.messages_created || 0;
+        total.errors += (data.errors || []).length;
+        if (!data.remaining) break;
+      }
+      if (total.tickets_created || total.messages_created || total.errors) {
+        const parts = [];
+        if (total.tickets_created) parts.push(`${total.tickets_created} nouvelle(s) conversation(s)`);
+        if (total.messages_created) parts.push(`${total.messages_created} e-mail(s)`);
+        toast('📧 E-mails : ' + (parts.join(', ') || 'rien de nouveau') + (total.errors ? ` — ${total.errors} erreur(s)` : '') + '.', total.errors > 0);
+        if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
+      }
+    } catch (err) {
+      const code = err.payload && err.payload.error;
+      if (code !== 'gmail_not_connected' && code !== 'gmail_app_not_configured') toast('E-mails non actualisés : ' + err.message, true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = original; }
+    }
+  }
+
+  // ---------- Canal de réponse (ajout 2026-09-17) ----------
+  // Règle : on répond par le canal du dernier message reçu. Si la conversation
+  // mêle Instagram et e-mail (fusion), Luc peut choisir. index.html envoie
+  // window.msavReplyChannel avec le brouillon (champ channel).
+  function renderReplyChannel() {
+    const box = document.getElementById('replyChannelBox');
+    const t = state.selectedTicket;
+    if (!box || !t) { window.msavReplyChannel = undefined; return; }
+    const msgs = state.messages || [];
+    const chan = (m) => m.channel || t.channel;
+    const inbound = msgs.filter((m) => m.direction === 'inbound').sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const last = inbound[inbound.length - 1];
+    const available = [...new Set(inbound.map(chan))].filter((c) => c === 'instagram' || c === 'email');
+    const auto = last ? chan(last) : t.channel;
+    if (!box.dataset.ticket || box.dataset.ticket !== t.id) {
+      box.dataset.ticket = t.id;
+      window.msavReplyChannel = auto;
+    }
+    if (!available.includes(window.msavReplyChannel)) window.msavReplyChannel = auto;
+    const lastEmail = [...inbound].reverse().find((m) => chan(m) === 'email');
+    const em = (lastEmail && lastEmail.email_meta) || {};
+    const emailText = `📧 e-mail à <strong>${escapeHtml(em.reply_to || em.from_email || t.contact_email || '?')}</strong>${em.subject || t.email_subject ? ` — objet « ${escapeHtml((/^re\s*:/i.test(em.subject || t.email_subject) ? '' : 'Re: ') + (em.subject || t.email_subject))} »` : ''}`;
+    const igText = `📷 DM Instagram${t.contact_handle ? ' à @' + escapeHtml(t.contact_handle) : ''}`;
+    if (available.length > 1) {
+      box.innerHTML = `Réponse par : <select id="replyChannelSelect" style="font-size:12px;padding:2px 4px;">
+          <option value="email" ${window.msavReplyChannel === 'email' ? 'selected' : ''}>e-mail</option>
+          <option value="instagram" ${window.msavReplyChannel === 'instagram' ? 'selected' : ''}>DM Instagram</option>
+        </select> <span>${window.msavReplyChannel === 'email' ? emailText : igText}</span>
+        ${window.msavReplyChannel !== auto ? '<span style="color:var(--red)"> (la personne a écrit en dernier par ' + (auto === 'email' ? 'e-mail' : 'Instagram') + ')</span>' : ''}`;
+      document.getElementById('replyChannelSelect').onchange = (e) => { window.msavReplyChannel = e.target.value; renderReplyChannel(); };
+    } else {
+      box.innerHTML = 'Réponse par : ' + (window.msavReplyChannel === 'email' ? emailText : igText);
+    }
+  }
+
   // ---------- Analyse après « Actualiser Instagram » ----------
   let aiNotConfiguredWarned = false;
   async function runAiProcessing(mode, { onProgress } = {}) {
@@ -802,7 +868,7 @@
       <textarea id="aiSetForbidden"></textarea>
       <label>Autres consignes</label>
       <textarea id="aiSetExtra"></textarea>
-      <h3 style="margin-top:18px;">🔎 Enquête d'Alice (boutons « Préparer une réponse »)</h3>
+      <h3 style="margin-top:18px;">📧 Boîte e-mail SAV et 🔎 enquête d'Alice</h3>
       <div class="ai-stats" id="aiSetInvStatus">…</div>
       <div style="margin-top:8px;"><button class="btn" id="aiSetGmailConnect">📧 Connecter la boîte e-mail SAV</button></div>
       <h3 style="margin-top:18px;">🛍️ Commandes gifting Shopify</h3>
@@ -858,7 +924,7 @@
       document.getElementById('aiSetInvStatus').innerHTML = `
         ${data.shopify_readonly ? '✅ Recherche de commandes Shopify active' : '⚠️ Recherche de commandes Shopify indisponible (accès lecture non connecté)'}<br>
         ✅ Recherche dans les autres conversations de la messagerie<br>
-        ${gm.connected ? `✅ Boîte e-mail SAV connectée : ${escapeHtml(gm.email || '')} (lecture seule)`
+        ${gm.connected ? `✅ Boîte e-mail SAV connectée : ${escapeHtml(gm.email || '')} — ${gm.can_send ? 'réception + réponses par e-mail' : '⚠️ lecture seule : reconnecte pour pouvoir répondre par e-mail'}${gm.last_sync_at ? ' · dernière synchro ' + escapeHtml(fmtDate(gm.last_sync_at)) : ''}`
           : gm.app_configured ? '⚠️ Boîte e-mail SAV pas encore connectée : clique ci-dessous et choisis le compte de la boîte SAV.'
             : '⚠️ Boîte e-mail SAV : app Google à configurer sur Vercel (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET), voir la procédure.'}`;
       document.getElementById('aiSetGmailConnect').textContent = gm.connected ? '📧 Reconnecter la boîte e-mail SAV' : '📧 Connecter la boîte e-mail SAV';
@@ -932,8 +998,11 @@
   const originalSyncInstagram = syncInstagram;
   syncInstagram = async function () {
     await originalSyncInstagram.apply(this, arguments);
+    await syncEmails();
     await aiAfterSync();
   };
+  const syncBtn = document.getElementById('syncInstagramBtn');
+  if (syncBtn) { syncBtn.textContent = '🔄 Actualiser'; syncBtn.title = 'Récupère les nouveaux DM Instagram et les nouveaux e-mails de la boîte SAV'; }
   document.getElementById('syncInstagramBtn').onclick = syncInstagram;
 
   const originalRenderDetail = renderDetail;
@@ -947,6 +1016,7 @@
   renderThread = function () {
     originalRenderThread.apply(this, arguments);
     markAiDraftsInThread();
+    renderReplyChannel();
   };
 
   const originalRenderQueue = renderQueue;

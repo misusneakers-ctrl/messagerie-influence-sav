@@ -7,6 +7,7 @@
 const { withTenantHandler, sendJson } = require('../../../lib/handler');
 const { withTenant } = require('../../../lib/db');
 const { logAudit } = require('../../../lib/audit');
+const { replyChannelFor } = require('../../../lib/channels/dispatch');
 
 module.exports = withTenantHandler(async (req, res, tenant) => {
   const ticketId = req.query.id;
@@ -77,11 +78,26 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         }
 
         const status = body.direction === 'inbound' ? 'received' : 'draft';
+        // Ajout 2026-09-17 (canal e-mail) : canal de réponse du brouillon —
+        // choisi dans le fil (body.channel) ou, par défaut, celui du dernier
+        // message reçu (règle « on répond par le canal par lequel on a été
+        // contacté », voir lib/channels/dispatch.js).
+        let channel = null;
+        if (body.channel !== undefined && body.channel !== null && body.channel !== '') {
+          if (!['instagram', 'email'].includes(body.channel)) {
+            const err = new Error('invalid_channel');
+            err.httpStatus = 400;
+            throw err;
+          }
+          channel = body.channel;
+        } else {
+          channel = await replyChannelFor(client, tenant.id, ticket, null);
+        }
         const { rows } = await client.query(
-          `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, body, status, external_message_id, attachments)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
+          `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, body, status, external_message_id, attachments, channel)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            RETURNING *`,
-          [tenant.id, ticketId, body.direction, body.body || '', status, body.external_message_id || null, JSON.stringify(attachments)]
+          [tenant.id, ticketId, body.direction, body.body || '', status, body.external_message_id || null, JSON.stringify(attachments), channel]
         );
         const messageRow = rows[0];
 

@@ -31,17 +31,23 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
          t.contact_name, t.contact_handle, t.contact_email, t.related_order_number,
          t.influence_relation_id, t.ai_analysis,
          tm.id AS message_id, tm.body AS message_body, tm.created_at AS message_created_at,
-         tm.ai_generated, tm.ai_meta,
-         li.created_at AS last_inbound_at, li.body AS last_inbound_body,
+         tm.ai_generated, tm.ai_meta, tm.channel AS message_channel,
+         li.created_at AS last_inbound_at, li.body AS last_inbound_body, li.channel AS last_inbound_channel,
+         lig.created_at AS last_instagram_inbound_at,
          rel.score_total, rel.relationship_status
        FROM tickets t
        JOIN ticket_messages tm
          ON tm.ticket_id = t.id AND tm.direction = 'outbound' AND tm.status = 'draft' AND tm.tenant_id = $1
        LEFT JOIN LATERAL (
-         SELECT created_at, body FROM ticket_messages
+         SELECT created_at, body, channel FROM ticket_messages
          WHERE ticket_id = t.id AND direction = 'inbound' AND tenant_id = $1
          ORDER BY created_at DESC LIMIT 1
        ) li ON true
+       LEFT JOIN LATERAL (
+         SELECT created_at FROM ticket_messages
+         WHERE ticket_id = t.id AND direction = 'inbound' AND tenant_id = $1 AND COALESCE(channel, t.channel) = 'instagram'
+         ORDER BY created_at DESC LIMIT 1
+       ) lig ON true
        LEFT JOIN tenant_influence_relations rel ON rel.id = t.influence_relation_id AND rel.tenant_id = $1
        WHERE t.tenant_id = $1
        ORDER BY tm.created_at ASC`,
@@ -53,9 +59,15 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
   const items = rows.map((r) => {
     const alerts = [];
     let withinWindow = null;
-    if (r.channel === 'instagram') {
-      withinWindow = instagram.isWithinResponseWindow(r.last_inbound_at);
+    // Correctif 2026-09-17 (canal e-mail) : canal de RÉPONSE = celui choisi
+    // pour le brouillon, sinon celui du dernier message reçu (voir
+    // lib/channels/dispatch.js).
+    const replyChannel = r.message_channel || r.last_inbound_channel || r.channel;
+    if (replyChannel === 'instagram') {
+      withinWindow = instagram.isWithinResponseWindow(r.last_instagram_inbound_at || r.last_inbound_at);
       if (!withinWindow) alerts.push('hors_fenetre_24h');
+    } else if (replyChannel === 'email') {
+      withinWindow = true;
     } else {
       // Seul le canal Instagram sait effectivement envoyer aujourd'hui (voir
       // TRANSMISSION-Messagerie-Influence-SAV.md, "reste à faire" — email SAV
@@ -72,7 +84,8 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       : [];
     return {
       ticket_id: r.ticket_id,
-      channel: r.channel,
+      channel: replyChannel,
+      ticket_channel: r.channel,
       category: r.category,
       group: r.category === 'Influence' ? 'influence' : 'messagerie',
       ticket_status: r.ticket_status,
@@ -88,7 +101,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       relationship_status: r.relationship_status,
       score_total: r.score_total,
       within_response_window: withinWindow,
-      sendable: r.channel === 'instagram' && withinWindow === true,
+      sendable: (replyChannel === 'instagram' || replyChannel === 'email') && withinWindow === true,
       alerts,
       ai_generated: !!r.ai_generated,
       ai_alerts: aiAlerts,

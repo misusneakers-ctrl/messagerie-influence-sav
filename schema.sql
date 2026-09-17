@@ -299,3 +299,13 @@ CREATE INDEX IF NOT EXISTS ticket_merges_target_idx ON ticket_merges (tenant_id,
 ALTER TABLE ticket_merges ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON ticket_merges
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+-- ============================================================
+-- CANAL E-MAIL (ajout 2026-09-17) — appliqué sur Neon le 17/09
+-- Réception de la boîte SAV (lib/channels/email-sync.js), réponse par le
+-- canal du dernier message reçu (lib/channels/dispatch.js).
+-- ============================================================
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS channel text;       -- 'instagram' | 'email' (NULL = canal du ticket)
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS email_meta jsonb;   -- Message-ID, In-Reply-To, objet, expéditeur, fil Gmail...
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS email_subject text;
+CREATE INDEX IF NOT EXISTS ticket_messages_external_idx ON ticket_messages (tenant_id, external_message_id) WHERE external_message_id IS NOT NULL;

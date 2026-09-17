@@ -1,13 +1,12 @@
 // POST /api/tickets/:id/messages/:messageId/send
 // Seule route qui peut faire passer un message "validated" -> "sent".
-// Exige : message déjà validé, ticket avec un message entrant dans les
-// dernières 24h (canal Instagram), idempotency_key fourni par l'appelant
+// Exige : message déjà validé, canal de réponse joignable (Instagram : message entrant
+// dans les 24 h ; e-mail : boîte SAV connectée), idempotency_key fourni par l'appelant
 // pour empêcher un double envoi en cas de retry réseau.
 const { withTenantHandler, sendJson } = require('../../../../../lib/handler');
 const { withTenant } = require('../../../../../lib/db');
 const { logAudit } = require('../../../../../lib/audit');
-const { decrypt } = require('../../../../../lib/crypto');
-const instagram = require('../../../../../lib/channels/instagram');
+const { resolveReplyTarget, sendToTarget } = require('../../../../../lib/channels/dispatch');
 
 module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method !== 'POST') {
@@ -68,113 +67,57 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         throw err;
       }
 
-      if (ticket.channel === 'instagram') {
-        const { rows: lastInboundRows } = await client.query(
-          `SELECT created_at FROM ticket_messages
-           WHERE ticket_id = $1 AND tenant_id = $2 AND direction = 'inbound'
-           ORDER BY created_at DESC LIMIT 1`,
-          [ticketId, tenant.id]
-        );
-        const lastInboundAt = lastInboundRows[0]?.created_at;
-        if (!instagram.isWithinResponseWindow(lastInboundAt)) {
-          const err = new Error('outside_24h_response_window');
-          err.httpStatus = 409;
-          throw err;
-        }
+      // Correctif 2026-09-17 (canal e-mail) : l'envoi passe par
+      // lib/channels/dispatch.js, qui répond par le canal du dernier message
+      // reçu (Instagram ou e-mail) — voir ce fichier. Le comportement
+      // Instagram est inchangé (fenêtre 24 h, texte puis pièces jointes).
+      let target;
+      try {
+        target = await resolveReplyTarget(client, tenant, ticket, message);
+      } catch (resolveErr) {
+        const err = new Error(resolveErr.code || resolveErr.message);
+        err.httpStatus = resolveErr.httpStatus || 409;
+        throw err;
+      }
 
-        const { rows: credRows } = await client.query(
-          `SELECT encrypted_value, metadata FROM tenant_credentials WHERE tenant_id = $1 AND type = 'meta_instagram'`,
-          [tenant.id]
-        );
-        const cred = credRows[0];
-        if (!cred) {
-          const err = new Error('instagram_not_configured_for_tenant');
-          err.httpStatus = 409;
-          throw err;
-        }
-        const accessToken = decrypt(cred.encrypted_value);
-        const igBusinessAccountId = cred.metadata?.ig_business_account_id;
-
-        // Correctif 2026-09-15 (pièce jointe sortante) : l'API Send de Meta
-        // n'accepte qu'une seule forme de "message" par appel (texte OU une
-        // pièce jointe), jamais les deux ensemble. Un message de notre appli
-        // peut porter du texte ET une/des pièce(s) jointe(s) (ex. "Voici
-        // votre étiquette" + un PDF) : on envoie donc le texte d'abord (s'il
-        // y en a), puis chaque pièce jointe l'une après l'autre, chacune en
-        // un appel Meta séparé. externalMessageId retenu = celui du DERNIER
-        // appel réussi (pas de notion d'id composite côté Meta).
-        //
-        // Limite assumée : ce n'est pas atomique. Si le texte part mais
-        // qu'une pièce jointe échoue ensuite, le texte est déjà bel et bien
-        // envoyé sur Instagram même si le message est marqué "rejected" ici
-        // — Meta n'offre pas de méthode "tout ou rien" pour un envoi en
-        // plusieurs parties. Cas rare (échec entre deux appels très
-        // rapprochés) mais à garder en tête si Luc signale un message reçu
-        // en double lors d'un nouvel essai après échec.
-        const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-        let sendOutcome = null;
-        try {
-          if (message.body) {
-            sendOutcome = await instagram.sendDirectMessage({
-              accessToken,
-              igBusinessAccountId,
-              recipientIgScopedId: ticket.external_thread_id,
-              text: message.body,
-            });
-          }
-          for (const attachment of attachments) {
-            sendOutcome = await instagram.sendDirectMessage({
-              accessToken,
-              igBusinessAccountId,
-              recipientIgScopedId: ticket.external_thread_id,
-              attachment,
-            });
-          }
-          if (!sendOutcome) {
-            // Ne devrait jamais arriver : api/tickets/:id/messages.js exige déjà
-            // au moins un des deux (body ou attachments) à la création.
-            const err = new Error('nothing_to_send');
-            err.code = 'nothing_to_send';
-            throw err;
-          }
-        } catch (sendErr) {
-          await client.query(
-            `UPDATE ticket_messages SET status = 'rejected', error = $1, idempotency_key = $2 WHERE id = $3 AND tenant_id = $4`,
-            [sendErr.message, body.idempotency_key, messageId, tenant.id]
-          );
-          await logAudit(client, tenant.id, {
-            actor: body.approved_by,
-            action: 'send_failed',
-            entityType: 'ticket_message',
-            entityId: messageId,
-            details: { error: sendErr.message },
-          });
-          const err = new Error('send_failed');
-          err.httpStatus = 502;
-          err.cause = sendErr.message;
-          throw err;
-        }
-
-        const { rows: sentRows } = await client.query(
-          `UPDATE ticket_messages
-           SET status = 'sent', sent_at = now(), external_message_id = $1, idempotency_key = $2
-           WHERE id = $3 AND tenant_id = $4 RETURNING *`,
-          [sendOutcome.externalMessageId, body.idempotency_key, messageId, tenant.id]
+      const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+      let sendOutcome = null;
+      try {
+        sendOutcome = await sendToTarget(tenant, target, { text: message.body, attachments, fromName: tenant.name });
+      } catch (sendErr) {
+        await client.query(
+          `UPDATE ticket_messages SET status = 'rejected', error = $1, idempotency_key = $2 WHERE id = $3 AND tenant_id = $4`,
+          [sendErr.message, body.idempotency_key, messageId, tenant.id]
         );
         await logAudit(client, tenant.id, {
           actor: body.approved_by,
-          action: 'message_sent',
+          action: 'send_failed',
           entityType: 'ticket_message',
           entityId: messageId,
-          details: { external_message_id: sendOutcome.externalMessageId },
+          details: { error: sendErr.message, channel: target.channel },
         });
-        return { message: sentRows[0], alreadyProcessed: false };
+        const err = new Error('send_failed');
+        err.httpStatus = 502;
+        err.cause = sendErr.message;
+        throw err;
       }
 
-      // Autres canaux (email) : à brancher au moment où le canal email est câblé.
-      const err = new Error(`channel_not_implemented:${ticket.channel}`);
-      err.httpStatus = 501;
-      throw err;
+      const { rows: sentRows } = await client.query(
+        `UPDATE ticket_messages
+         SET status = 'sent', sent_at = now(), external_message_id = $1, idempotency_key = $2,
+             channel = $5, email_meta = COALESCE($6, email_meta)
+         WHERE id = $3 AND tenant_id = $4 RETURNING *`,
+        [sendOutcome.externalMessageId, body.idempotency_key, messageId, tenant.id, sendOutcome.channel,
+          sendOutcome.emailMeta ? JSON.stringify(sendOutcome.emailMeta) : null]
+      );
+      await logAudit(client, tenant.id, {
+        actor: body.approved_by,
+        action: 'message_sent',
+        entityType: 'ticket_message',
+        entityId: messageId,
+        details: { external_message_id: sendOutcome.externalMessageId, channel: sendOutcome.channel },
+      });
+      return { message: sentRows[0], alreadyProcessed: false };
     });
 
     sendJson(res, result.alreadyProcessed ? 200 : 201, { message: result.message, already_processed: result.alreadyProcessed });

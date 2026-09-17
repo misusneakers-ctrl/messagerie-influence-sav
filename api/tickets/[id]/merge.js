@@ -69,6 +69,11 @@ async function mergeTickets(client, tenant, targetId, body) {
   if (target.merged_into_ticket_id) throw httpError(409, 'target_already_merged', { merged_into_ticket_id: target.merged_into_ticket_id });
   if (source.merged_into_ticket_id) throw httpError(409, 'source_already_merged', { merged_into_ticket_id: source.merged_into_ticket_id });
 
+  // Chaque message garde son canal d'origine (pour répondre par le bon canal).
+  await client.query(
+    `UPDATE ticket_messages SET channel = $1 WHERE tenant_id = $2 AND ticket_id = $3 AND channel IS NULL AND direction = 'inbound'`,
+    [source.channel, tenant.id, sourceId]
+  );
   const { rows: movedMessages } = await client.query(
     `UPDATE ticket_messages SET ticket_id = $1 WHERE tenant_id = $2 AND ticket_id = $3 RETURNING id`,
     [targetId, tenant.id, sourceId]

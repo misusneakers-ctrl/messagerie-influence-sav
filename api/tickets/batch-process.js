@@ -13,8 +13,7 @@
 const { withTenantHandler, sendJson } = require('../../lib/handler');
 const { withTenant } = require('../../lib/db');
 const { logAudit } = require('../../lib/audit');
-const { decrypt } = require('../../lib/crypto');
-const instagram = require('../../lib/channels/instagram');
+const { resolveReplyTarget, sendToTarget } = require('../../lib/channels/dispatch');
 
 async function processOne(tenant, item, approvedBy) {
   const messageId = item.message_id;
@@ -73,25 +72,18 @@ async function processOne(tenant, item, approvedBy) {
       return { message_id: messageId, ticket_id: ticketId, outcome: 'error', reason: 'ticket_not_found' };
     }
 
-    if (ticket.channel !== 'instagram') {
-      // Email SAV pas encore câblé (voir TRANSMISSION) : jamais envoyable
-      // depuis ce lot, on l'exclut proprement plutôt que d'échouer.
-      return { message_id: messageId, ticket_id: ticketId, outcome: 'excluded', reason: `channel_not_implemented:${ticket.channel}` };
+    // Correctif 2026-09-17 (canal e-mail) : canal de réponse et contrôles
+    // (fenêtre 24 h Instagram, boîte e-mail connectée...) via
+    // lib/channels/dispatch.js, avant toute validation.
+    let target;
+    try {
+      target = await resolveReplyTarget(client, tenant, ticket, message);
+    } catch (resolveErr) {
+      const reason = resolveErr.code || resolveErr.message;
+      const excluded = reason === 'outside_24h_response_window' || reason.startsWith('channel_not_implemented');
+      return { message_id: messageId, ticket_id: ticketId, outcome: excluded ? 'excluded' : 'error', reason };
     }
 
-    const { rows: lastInboundRows } = await client.query(
-      `SELECT created_at FROM ticket_messages
-       WHERE ticket_id = $1 AND tenant_id = $2 AND direction = 'inbound'
-       ORDER BY created_at DESC LIMIT 1`,
-      [ticketId, tenant.id]
-    );
-    const lastInboundAt = lastInboundRows[0]?.created_at;
-    if (!instagram.isWithinResponseWindow(lastInboundAt)) {
-      return { message_id: messageId, ticket_id: ticketId, outcome: 'excluded', reason: 'outside_24h_response_window' };
-    }
-
-    // Validation (draft -> validated) : tracée exactement comme si Luc avait
-    // cliqué "Valider" sur ce ticket précis, un par un.
     await client.query(
       `UPDATE ticket_messages SET status = 'validated', validated_by = $1, validated_at = now() WHERE id = $2 AND tenant_id = $3`,
       [approvedBy, messageId, tenant.id]
@@ -104,24 +96,12 @@ async function processOne(tenant, item, approvedBy) {
       details: { via: 'batch_process' },
     });
 
-    const { rows: credRows } = await client.query(
-      `SELECT encrypted_value, metadata FROM tenant_credentials WHERE tenant_id = $1 AND type = 'meta_instagram'`,
-      [tenant.id]
-    );
-    const cred = credRows[0];
-    if (!cred) {
-      return { message_id: messageId, ticket_id: ticketId, outcome: 'error', reason: 'instagram_not_configured_for_tenant' };
-    }
-    const accessToken = decrypt(cred.encrypted_value);
-    const igBusinessAccountId = cred.metadata?.ig_business_account_id;
-
     let sendOutcome;
     try {
-      sendOutcome = await instagram.sendDirectMessage({
-        accessToken,
-        igBusinessAccountId,
-        recipientIgScopedId: ticket.external_thread_id,
+      sendOutcome = await sendToTarget(tenant, target, {
         text: finalBody,
+        attachments: Array.isArray(message.attachments) ? message.attachments : [],
+        fromName: tenant.name,
       });
     } catch (sendErr) {
       await client.query(
@@ -133,23 +113,25 @@ async function processOne(tenant, item, approvedBy) {
         action: 'send_failed',
         entityType: 'ticket_message',
         entityId: messageId,
-        details: { error: sendErr.message, via: 'batch_process' },
+        details: { error: sendErr.message, via: 'batch_process', channel: target.channel },
       });
       return { message_id: messageId, ticket_id: ticketId, outcome: 'error', reason: sendErr.message };
     }
 
     await client.query(
       `UPDATE ticket_messages
-       SET status = 'sent', sent_at = now(), external_message_id = $1, idempotency_key = $2
+       SET status = 'sent', sent_at = now(), external_message_id = $1, idempotency_key = $2,
+           channel = $5, email_meta = COALESCE($6, email_meta)
        WHERE id = $3 AND tenant_id = $4`,
-      [sendOutcome.externalMessageId, idempotencyKey, messageId, tenant.id]
+      [sendOutcome.externalMessageId, idempotencyKey, messageId, tenant.id, sendOutcome.channel,
+        sendOutcome.emailMeta ? JSON.stringify(sendOutcome.emailMeta) : null]
     );
     await logAudit(client, tenant.id, {
       actor: approvedBy,
       action: 'message_sent',
       entityType: 'ticket_message',
       entityId: messageId,
-      details: { external_message_id: sendOutcome.externalMessageId, via: 'batch_process' },
+      details: { external_message_id: sendOutcome.externalMessageId, via: 'batch_process', channel: sendOutcome.channel },
     });
 
     return { message_id: messageId, ticket_id: ticketId, outcome: 'sent' };

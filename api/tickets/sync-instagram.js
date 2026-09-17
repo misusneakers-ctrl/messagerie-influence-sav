@@ -256,8 +256,10 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           // de demander ce champ à l'API (voir correctif dans ce fichier-là).
           const messageCreatedAt = message.created_time || new Date().toISOString();
           await client.query(
-            `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, status, body, external_message_id, created_at, attachments)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            // channel = 'instagram' (ajout 2026-09-17) : un ticket fusionné peut
+            // mêler Instagram et e-mail, chaque message garde son canal.
+            `INSERT INTO ticket_messages (tenant_id, ticket_id, direction, status, body, external_message_id, created_at, attachments, channel)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'instagram')`,
             [
               tenant.id,
               ticket.id,

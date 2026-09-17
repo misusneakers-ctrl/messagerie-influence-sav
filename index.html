@@ -788,6 +788,7 @@ async function renderDetail() {
     </div>
     <div class="thread" id="thread"></div>
     <div class="composer">
+      <div id="replyChannelBox" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
       <textarea id="composerInput" placeholder="Écrire une réponse…"></textarea>
       <div id="attachPreviewBox"></div>
       <div class="row">
@@ -1307,7 +1308,10 @@ async function deleteTicketConfirm() {
 //    texte stocké et envoyé pour un brouillon, pas juste à son affichage —
 //    pour un message déjà en base (import Instagram), on continue à ne
 //    nettoyer qu'à l'affichage, sans réécrire l'historique.
-function normalizeBodyForDisplay(body) {
+// Ajout 2026-09-17 (canal e-mail) : keepParagraphs = true garde UNE ligne
+// vide entre deux paragraphes (e-mails reçus ou réponse par e-mail) ; les DM
+// Instagram restent compactés comme avant.
+function normalizeBodyForDisplay(body, keepParagraphs = false) {
   if (!body) return '';
   return body
     .replace(/\r\n?/g, '\n')
@@ -1315,7 +1319,7 @@ function normalizeBodyForDisplay(body) {
     .split('\n')
     .map((line) => line.replace(/[ \t ]+/g, ' ').trim())
     .join('\n')
-    .replace(/\n{2,}/g, '\n')
+    .replace(keepParagraphs ? /\n{3,}/g : /\n{2,}/g, keepParagraphs ? '\n\n' : '\n')
     .trim();
 }
 
@@ -1343,8 +1347,14 @@ function renderThread() {
   // brouillon vide n'a de toute façon rien à valider ; on ne perd donc
   // aucune action réelle en le masquant.
   const msgs = sorted
-    .map((m) => ({ m, cleanBody: normalizeBodyForDisplay(m.body), attachments: Array.isArray(m.attachments) ? m.attachments : [] }))
+    .map((m) => ({ m, cleanBody: normalizeBodyForDisplay(m.body, (m.channel || (state.selectedTicket && state.selectedTicket.channel)) === 'email'), attachments: Array.isArray(m.attachments) ? m.attachments : [] }))
     .filter(({ cleanBody, attachments }) => cleanBody || attachments.length > 0);
+
+  // Ajout 2026-09-17 (canal e-mail) : badge du canal sur chaque message quand
+  // la conversation mêle Instagram et e-mail (fusion), et objet des e-mails.
+  const threadChannels = new Set(state.messages.map((x) => x.channel || (state.selectedTicket && state.selectedTicket.channel)));
+  const mixedChannels = threadChannels.size > 1;
+  let lastSubjectShown = null;
 
   msgs.forEach(({ m, cleanBody, attachments }, idx) => {
     const prev = msgs[idx - 1] && msgs[idx - 1].m;
@@ -1387,8 +1397,17 @@ function renderThread() {
     // : created_at porte déjà l'horodatage réel fourni par Meta
     // (created_time), donc le repli sur created_at reste correct dans ce cas.
     const displayDate = m.sent_at || m.created_at;
-    const metaHtml = showMeta ? `
+    const msgChannel = m.channel || (state.selectedTicket && state.selectedTicket.channel);
+    const channelTagHtml = mixedChannels
+      ? `<span class="badge badge-channel">${msgChannel === 'email' ? '📧 e-mail' : '📷 Instagram'}</span>`
+      : '';
+    const subject = msgChannel === 'email' && m.email_meta && m.email_meta.subject ? m.email_meta.subject : null;
+    const subjectHtml = subject && subject.replace(/^(re|tr|fwd?)\s*:\s*/i, '') !== (lastSubjectShown || '').replace(/^(re|tr|fwd?)\s*:\s*/i, '')
+      ? `<div class="meta" style="font-weight:600;">Objet : ${escapeHtml(subject)}</div>` : '';
+    if (subject) lastSubjectShown = subject;
+    const metaHtml = (showMeta || channelTagHtml) ? `
       <div class="meta">
+        ${channelTagHtml}
         ${statusPillHtml}
         <span>${fmtDate(displayDate)}</span>
         ${m.error ? '<span style="color:var(--red);">· ' + escapeHtml(m.error) + '</span>' : ''}
@@ -1396,6 +1415,7 @@ function renderThread() {
     ` : '';
 
     div.innerHTML = `
+      ${subjectHtml}
       ${cleanBody ? `<div class="msg-body">${escapeHtml(cleanBody)}</div>` : ''}
       ${attachmentsHtml}
       ${metaHtml}
@@ -1485,13 +1505,13 @@ async function handleAttachmentFileSelected(file) {
 
 async function createDraft() {
   const input = document.getElementById('composerInput');
-  const body = normalizeBodyForDisplay(input.value);
+  const body = normalizeBodyForDisplay(input.value, window.msavReplyChannel === 'email');
   const attachments = state.pendingAttachment ? [state.pendingAttachment] : [];
   if (!body && attachments.length === 0) return;
   try {
     await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
       method: 'POST',
-      body: { direction: 'outbound', body, attachments },
+      body: { direction: 'outbound', body, attachments, channel: window.msavReplyChannel || undefined },
     });
     input.value = '';
     state.pendingAttachment = null;
@@ -1547,7 +1567,7 @@ async function sendDraftNow(messageId, btn) {
 
 async function sendDirectly() {
   const input = document.getElementById('composerInput');
-  const body = normalizeBodyForDisplay(input.value);
+  const body = normalizeBodyForDisplay(input.value, window.msavReplyChannel === 'email');
   const attachments = state.pendingAttachment ? [state.pendingAttachment] : [];
   if (!body && attachments.length === 0) return;
   const approvedBy = window.prompt('Envoyer ce message directement en tant que :', defaultSenderName());
@@ -1561,7 +1581,7 @@ async function sendDirectly() {
   try {
     const draftData = await api('/api/tickets/' + state.selectedTicket.id + '/messages', {
       method: 'POST',
-      body: { direction: 'outbound', body, attachments },
+      body: { direction: 'outbound', body, attachments, channel: window.msavReplyChannel || undefined },
     });
     messageId = draftData.message.id;
 
@@ -1852,7 +1872,7 @@ function renderQueue() {
       card.className = 'queue-card' + (it.sendable ? '' : ' unsendable');
       card.innerHTML = `
         <div class="qc-check">
-          <input type="checkbox" data-id="${it.message_id}" ${checked ? 'checked' : ''} ${it.channel !== 'instagram' ? 'disabled' : ''} />
+          <input type="checkbox" data-id="${it.message_id}" ${checked ? 'checked' : ''} ${!['instagram', 'email'].includes(it.channel) ? 'disabled' : ''} />
         </div>
         <div class="qc-body">
           <div class="qc-top">
@@ -2185,6 +2205,6 @@ async function init() {
 init();
 </script>
 <!-- Ajout 2026-09-16 : interface des brouillons IA (assistante Alice/Louise) — tout le code est dans ai-ui.js -->
-<script src="/ai-ui.js?v=20260917b"></script>
+<script src="/ai-ui.js?v=20260917c"></script>
 </body>
 </html>

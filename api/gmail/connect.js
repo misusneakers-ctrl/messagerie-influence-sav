@@ -1,11 +1,12 @@
 // GET /api/gmail/connect?tenant=bbp|misu
-// Ajout 2026-09-17 (enquête d'Alice) : démarre la connexion Google de la
-// boîte e-mail SAV de la marque, en LECTURE SEULE (gmail.readonly). À ouvrir
-// depuis « ✨ Assistante IA » → « 📧 Connecter la boîte e-mail SAV ». Choisir,
-// sur l'écran Google, le compte de la boîte SAV à connecter.
+// Ajout 2026-09-17 : démarre la connexion Google de la boîte e-mail SAV de la
+// marque (lecture gmail.readonly + envoi gmail.send — voir lib/gmail/client.js).
+// À ouvrir depuis « ✨ Assistante IA » → « 📧 Connecter la boîte e-mail SAV ».
+// Sur l'écran Google, choisir le compte Hello (la boîte SAV), pas un compte
+// personnel : c'est depuis cette adresse que partiront les réponses.
 const { resolveTenantBySlug } = require('../../lib/tenant');
 const { signState } = require('../../lib/gifting/oauth');
-const { REDIRECT_URI, SCOPE, googleAppCredentials } = require('../../lib/gmail/client');
+const { REDIRECT_URI, SCOPES, googleAppCredentials } = require('../../lib/gmail/client');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -27,7 +28,7 @@ module.exports = async function handler(req, res) {
   url.searchParams.set('client_id', app.clientId);
   url.searchParams.set('redirect_uri', REDIRECT_URI);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', SCOPE);
+  url.searchParams.set('scope', SCOPES.join(' '));
   url.searchParams.set('access_type', 'offline');
   url.searchParams.set('prompt', 'consent select_account');
   url.searchParams.set('include_granted_scopes', 'false');

@@ -1,15 +1,15 @@
 // GET /api/gmail/callback?code=...&state=...&scope=...
-// Ajout 2026-09-17 (enquête d'Alice) : retour de la connexion Google démarrée
-// par api/gmail/connect.js. Vérifie l'état signé (15 min), échange le code
-// côté serveur, exige le droit gmail.readonly, lit l'adresse de la boîte
+// Ajout 2026-09-17 : retour de la connexion Google démarrée par
+// api/gmail/connect.js. Vérifie l'état signé (15 min), échange le code côté
+// serveur, exige les droits lecture + envoi, lit l'adresse de la boîte
 // connectée, puis stocke le jeton de rafraîchissement CHIFFRÉ
-// (tenant_credentials type 'gmail_readonly'). Aucun jeton n'est affiché.
+// (tenant_credentials type 'gmail'). Aucun jeton n'est affiché.
 const { resolveTenantBySlug } = require('../../lib/tenant');
 const { withTenant } = require('../../lib/db');
 const { encrypt } = require('../../lib/crypto');
 const { logAudit } = require('../../lib/audit');
 const { readStateSlug, verifyState } = require('../../lib/gifting/oauth');
-const { REDIRECT_URI, SCOPE, googleAppCredentials } = require('../../lib/gmail/client');
+const { REDIRECT_URI, SCOPES, CREDENTIAL_TYPE, googleAppCredentials } = require('../../lib/gmail/client');
 
 function page(title, body, ok) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${title}</title>
@@ -53,8 +53,10 @@ module.exports = async function handler(req, res) {
     });
     const token = await tokenResp.json().catch(() => ({}));
     if (!tokenResp.ok || !token.access_token) throw new Error(`échange du code refusé par Google (${token.error || tokenResp.status})`);
-    if (!String(token.scope || '').split(' ').includes(SCOPE)) {
-      res.status(200).send(page('Droit refusé', "<p>Google n'a pas accordé la lecture des e-mails. Relance la connexion et coche l'accès demandé.</p>"));
+    const granted = String(token.scope || '').split(' ');
+    const missing = SCOPES.filter((sc) => !granted.includes(sc));
+    if (missing.length) {
+      res.status(200).send(page('Droits incomplets', `<p>Google n'a pas accordé : <code>${esc(missing.join(', '))}</code>.</p><p>Relance la connexion et coche <strong>toutes</strong> les cases (lire les e-mails et envoyer des e-mails). Vérifie aussi que ces deux droits sont bien ajoutés dans « Accès aux données » de l'app Google.</p>`));
       return;
     }
     if (!token.refresh_token) {
@@ -63,19 +65,20 @@ module.exports = async function handler(req, res) {
     }
     const profileResp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { Authorization: `Bearer ${token.access_token}` } });
     const profile = await profileResp.json().catch(() => ({}));
-    const metadata = { email: profile.emailAddress || null, scope: SCOPE, connected_at: new Date().toISOString() };
+    const metadata = { email: profile.emailAddress ? String(profile.emailAddress).toLowerCase() : null, scope: granted.filter((sc) => SCOPES.includes(sc)).join(' '), connected_at: new Date().toISOString() };
     await withTenant(tenant.id, async (client) => {
       await client.query(
         `INSERT INTO tenant_credentials (tenant_id, type, encrypted_value, metadata)
-         VALUES ($1, 'gmail_readonly', $2, $3)
-         ON CONFLICT (tenant_id, type) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value, metadata = EXCLUDED.metadata, updated_at = now()`,
-        [tenant.id, encrypt(JSON.stringify({ refresh_token: token.refresh_token })), JSON.stringify(metadata)]
+         VALUES ($1, $4, $2, $3)
+         ON CONFLICT (tenant_id, type) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value,
+           metadata = EXCLUDED.metadata || jsonb_build_object('last_sync_at', tenant_credentials.metadata->'last_sync_at'), updated_at = now()`,
+        [tenant.id, encrypt(JSON.stringify({ refresh_token: token.refresh_token })), JSON.stringify(metadata), CREDENTIAL_TYPE]
       );
       await logAudit(client, tenant.id, { actor: 'manual', action: 'gmail_connected', entityType: 'tenant_credentials', entityId: null, details: metadata });
     });
     res.status(200).send(page(`✅ Boîte e-mail connectée pour ${esc(tenant.name)}`,
-      `<p>Boîte : <strong>${esc(metadata.email || 'inconnue')}</strong> — lecture seule.</p>
-       <p>Vérifie que c'est bien la boîte SAV de ${esc(tenant.name)}, puis ferme cet onglet et retourne sur la messagerie.</p>`, true));
+      `<p>Boîte : <strong>${esc(metadata.email || 'inconnue')}</strong> (lecture + envoi des réponses validées).</p>
+       <p>Vérifie que c'est bien la boîte SAV de ${esc(tenant.name)} (Hello), puis ferme cet onglet et retourne sur la messagerie.</p>`, true));
   } catch (err) {
     res.status(502).send(page('Erreur pendant la connexion', `<p><code>${esc(err.message)}</code></p>`));
   }

@@ -43,12 +43,13 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       // Ajout 2026-09-17 (enquête d'Alice) : état de la boîte e-mail SAV et de
       // l'accès Shopify en lecture (recherche de commandes).
       const { rows: otherCreds } = await client.query(
-        `SELECT type, metadata FROM tenant_credentials WHERE tenant_id = $1 AND type IN ('gmail_readonly', 'shopify_readonly')`,
+        `SELECT type, metadata FROM tenant_credentials WHERE tenant_id = $1 AND type IN ('gmail', 'shopify_readonly')`,
         [tenant.id]
       );
-      const gmailRow = otherCreds.find((c) => c.type === 'gmail_readonly');
+      const gmailRow = otherCreds.find((c) => c.type === 'gmail');
       const gmail = gmailRow
-        ? { connected: true, email: gmailRow.metadata?.email || null, connected_at: gmailRow.metadata?.connected_at || null }
+        ? { connected: true, email: gmailRow.metadata?.email || null, connected_at: gmailRow.metadata?.connected_at || null,
+            last_sync_at: gmailRow.metadata?.last_sync_at || null, can_send: String(gmailRow.metadata?.scope || '').includes('gmail.send') }
         : { connected: false, app_configured: !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET) };
       const shopifyReadonly = otherCreds.some((c) => c.type === 'shopify_readonly');
       return { settings, stats: rows[0], gifting: giftingCred, gmail, shopify_readonly: shopifyReadonly };
