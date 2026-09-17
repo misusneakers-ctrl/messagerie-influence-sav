@@ -272,3 +272,30 @@ CREATE TABLE audit_log (
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON audit_log
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+
+-- ============================================================
+-- FUSION DE TICKETS (ajout 2026-09-17, enquête d'Alice) — appliqué sur Neon le 17/09
+-- Voir api/tickets/[id]/merge.js : messages déplacés (jamais supprimés),
+-- source archivée + merged_into_ticket_id, fusion réversible (« Défaire »).
+-- ============================================================
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS merged_into_ticket_id uuid REFERENCES tickets(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS tickets_merged_into_idx ON tickets (tenant_id, merged_into_ticket_id) WHERE merged_into_ticket_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS ticket_merges (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  target_ticket_id uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  source_ticket_id uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  message_ids uuid[] NOT NULL DEFAULT '{}',
+  gifting_order_ids uuid[] NOT NULL DEFAULT '{}',
+  target_fields_filled jsonb NOT NULL DEFAULT '{}',
+  source_was_archived boolean NOT NULL DEFAULT false,
+  merged_by text,
+  merged_at timestamptz NOT NULL DEFAULT now(),
+  undone_by text,
+  undone_at timestamptz,
+  evidence jsonb
+);
+CREATE INDEX IF NOT EXISTS ticket_merges_target_idx ON ticket_merges (tenant_id, target_ticket_id);
+ALTER TABLE ticket_merges ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON ticket_merges
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid);

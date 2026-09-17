@@ -161,6 +161,16 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           [tenant.id, contactParticipant.id]
         );
         let ticket = existingTicketRows[0];
+        // Ajout 2026-09-17 (fusion de tickets) : si cette conversation a été
+        // fusionnée dans une autre par Luc, les nouveaux messages vont dans le
+        // ticket cible (voir api/tickets/[id]/merge.js).
+        if (ticket && ticket.merged_into_ticket_id) {
+          const { rows: targetRows } = await client.query(
+            'SELECT * FROM tickets WHERE id = $1 AND tenant_id = $2',
+            [ticket.merged_into_ticket_id, tenant.id]
+          );
+          if (targetRows[0]) ticket = targetRows[0];
+        }
 
         if (!ticket) {
           const [{ rows: defaultCategoryRows }, { rows: defaultStatusRows }] = await Promise.all([

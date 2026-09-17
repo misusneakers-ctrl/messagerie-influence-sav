@@ -31,6 +31,9 @@
     info_manquante: { text: 'Info manquante', bad: false },
     hors_fenetre_24h: { text: 'Hors fenêtre 24h', bad: true },
     sensible: { text: '⚠️ Sujet sensible', bad: true },
+    commande_a_confirmer: { text: '🔎 Commande à confirmer', bad: true },
+    commande_introuvable: { text: '🔎 Commande introuvable', bad: false },
+    conversation_liee: { text: '💬 Autre conversation du client', bad: false },
     autre: { text: 'À noter', bad: false },
   };
   const STAGES = {
@@ -98,6 +101,13 @@
     .ai-settings textarea{min-height:70px;resize:vertical;}
     .ai-settings .ai-toggle{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;color:var(--text);}
     .ai-settings .ai-toggle input{width:auto;}
+    .ai-box .ai-inv{background:#fff;border:1px solid #ddd6fe;border-radius:8px;padding:6px 10px;display:flex;flex-direction:column;gap:6px;}
+    .ai-box .ai-inv-item{border-top:1px dashed var(--border);padding-top:5px;display:flex;flex-direction:column;gap:3px;}
+    .ai-box .ai-inv-item:first-of-type{border-top:none;padding-top:0;}
+    .ai-box .ai-inv-item ul{margin:0;padding-left:18px;color:var(--muted);font-size:11.5px;}
+    .ai-box .conf-forte{background:#dcfce7;color:#166534;}
+    .ai-box .conf-moyenne{background:#fef3c7;color:#92400e;}
+    .ai-box .conf-faible{background:#f1f5f9;color:#475569;}
     .ai-settings .ai-stats{background:var(--bg);border-radius:8px;padding:8px 10px;font-size:12.5px;margin-top:6px;}
   `;
   document.head.appendChild(style);
@@ -169,8 +179,18 @@
 
     if (isInfluence) parts.push('<div class="ai-row" id="aiGiftingRow"><span class="ai-muted">🛍️ Commande gifting : chargement…</span></div>');
 
+    // Enquête, commande liée et fusions (ajout 2026-09-17)
+    if (t.related_order_number) {
+      parts.push(`<div class="ai-row"><span>📦 Commande liée : <strong>${escapeHtml(t.related_order_number)}</strong></span>
+        <a href="#" id="aiUnlinkOrder" class="ai-muted">délier</a></div>`);
+    }
+    if (a && a.investigation) parts.push(renderInvestigation(a.investigation, t));
+    parts.push('<div class="ai-row" id="aiMergeRow" style="display:none;"></div>');
+
     box.innerHTML = parts.join('');
     if (isInfluence) loadGiftingRow(t.id);
+    loadMergeRow(t.id);
+    bindInvestigation(box, t);
 
     const draftBtn = document.getElementById('aiDraftBtn');
     draftBtn.onclick = () => requestAiDraft(draftBtn);
@@ -186,6 +206,155 @@
       try { await navigator.clipboard.writeText(shippingText(a.shipping_details)); toast('Coordonnées copiées.'); }
       catch (err) { toast('Copie impossible — sélectionne le texte à la main.', true); }
     };
+  }
+
+  // ---------- Enquête d'Alice : commande, conversations, e-mails (ajout 2026-09-17) ----------
+  // Alice PROPOSE (indices + confiance) ; Luc confirme d'un clic. Rien n'est
+  // lié ni fusionné automatiquement. Serveur : lib/ai/investigation.js et
+  // api/tickets/[id]/merge.js.
+  const FULFILL_LABEL = { FULFILLED: 'expédiée', UNFULFILLED: 'non expédiée', PARTIALLY_FULFILLED: 'partiellement expédiée', IN_PROGRESS: 'en préparation', ON_HOLD: 'en attente', SCHEDULED: 'programmée', RESTOCKED: 'remise en stock' };
+  const CONF_LABEL = { forte: 'confiance forte', moyenne: 'confiance moyenne', faible: 'confiance faible' };
+  function confBadge(c) {
+    return `<span class="badge conf-${escapeHtml(c)}">${escapeHtml(CONF_LABEL[c] || c)}</span>`;
+  }
+  function indicesList(list) {
+    return Array.isArray(list) && list.length ? `<ul>${list.map((x) => `<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '';
+  }
+
+  function renderInvestigation(inv, t) {
+    const out = [`<div class="ai-inv"><div>🔎 <strong>Enquête</strong>${inv.conclusion ? ' : ' + escapeHtml(inv.conclusion) : ''}</div>`];
+    (inv.commandes || []).forEach((c) => {
+      const linked = t.related_order_number && t.related_order_number.replace(/^#/, '').toUpperCase() === String(c.numero).replace(/^#/, '').toUpperCase();
+      out.push(`<div class="ai-inv-item">
+        <div class="ai-row"><span>🛒 <strong>${escapeHtml(c.numero)}</strong> · ${escapeHtml(c.date || '')}${c.nom ? ' · ' + escapeHtml(c.nom) : ''}${c.ville ? ' · ' + escapeHtml(c.ville) : ''}${c.annulee ? ' · <span style="color:var(--red)">annulée</span>' : ''}</span>
+          ${confBadge(c.confiance)}
+          ${linked ? '<span class="badge badge-score">✅ liée</span>' : `<button class="btn" data-ai-link-order="${escapeHtml(c.numero)}">🔗 Lier cette commande</button>`}</div>
+        ${c.articles && c.articles.length ? `<div class="ai-muted">${c.articles.map(escapeHtml).join(' · ')}${c.expedition ? ' — ' + escapeHtml(FULFILL_LABEL[c.expedition] || c.expedition) : ''}</div>` : ''}
+        ${indicesList(c.indices)}
+      </div>`);
+    });
+    (inv.conversations || []).forEach((c) => {
+      out.push(`<div class="ai-inv-item">
+        <div class="ai-row"><span>💬 Conversation ${escapeHtml(c.canal || '')} du ${escapeHtml(c.creee_le || '')}${c.contact ? ' · ' + escapeHtml(c.contact) : ''}${c.commande_liee ? ' · commande ' + escapeHtml(c.commande_liee) : ''}</span>
+          ${confBadge(c.confiance)}
+          <a href="#" class="ai-muted" data-ai-open-ticket="${escapeHtml(c.ticket_id)}">ouvrir</a>
+          ${c.deja_fusionnee ? '<span class="ai-muted">déjà fusionnée</span>' : `<button class="btn" data-ai-merge="${escapeHtml(c.ticket_id)}">🔀 Fusionner ici</button>`}</div>
+        ${indicesList(c.indices)}
+      </div>`);
+    });
+    (inv.emails || []).forEach((e) => {
+      out.push(`<div class="ai-inv-item"><div>📧 <strong>${escapeHtml(e.sujet || '(sans objet)')}</strong> <span class="ai-muted">— ${escapeHtml(e.de || '')} · ${escapeHtml(e.date || '')}</span></div>
+        ${e.resume ? `<div class="ai-muted">${escapeHtml(e.resume)}</div>` : ''}</div>`);
+    });
+    if (!(inv.commandes || []).length && !(inv.conversations || []).length && !(inv.emails || []).length) {
+      out.push('<div class="ai-muted">Aucun élément concluant trouvé.</div>');
+    }
+    const searches = (inv.recherches || []).map((r) => `${r.outil}${r.resultats != null ? ' (' + r.resultats + ')' : ''}${r.erreur ? ' ⚠️ ' + r.erreur : ''}`);
+    if (searches.length) out.push(`<div class="ai-muted" title="${escapeHtml(JSON.stringify(inv.recherches))}">Recherches : ${escapeHtml(searches.join(' · '))}</div>`);
+    out.push('</div>');
+    return out.join('');
+  }
+
+  function bindInvestigation(box, t) {
+    box.querySelectorAll('[data-ai-link-order]').forEach((el) => {
+      el.onclick = () => linkOrder(t, el.dataset.aiLinkOrder, el);
+    });
+    box.querySelectorAll('[data-ai-open-ticket]').forEach((el) => {
+      el.onclick = (e) => { e.preventDefault(); if (typeof selectTicket === 'function') selectTicket(el.dataset.aiOpenTicket); };
+    });
+    box.querySelectorAll('[data-ai-merge]').forEach((el) => {
+      el.onclick = () => mergeInto(t, el.dataset.aiMerge, el);
+    });
+    const unlink = document.getElementById('aiUnlinkOrder');
+    if (unlink) unlink.onclick = async (e) => {
+      e.preventDefault();
+      if (!window.confirm(`Délier la commande ${t.related_order_number} de cette conversation ?`)) return;
+      try {
+        await api('/api/tickets/' + t.id, { method: 'PATCH', body: { related_order_number: null, actor: 'Luc' } });
+        await refreshSelectedTicket();
+        toast('Commande déliée.');
+      } catch (err) { toast('Erreur : ' + err.message, true); }
+    };
+  }
+
+  async function linkOrder(t, numero, el) {
+    const name = askName(`Lier la commande ${numero} à cette conversation en tant que :`);
+    if (!name) return;
+    if (el) el.disabled = true;
+    try {
+      await api('/api/tickets/' + t.id, { method: 'PATCH', body: { related_order_number: numero, actor: name } });
+      await refreshSelectedTicket();
+      const instr = document.getElementById('aiInstruction');
+      if (instr) instr.value = `La commande ${numero} est confirmée pour cette cliente : lis-la et réponds en t'appuyant sur son statut et son suivi réels.`;
+      toast(`Commande ${numero} liée. Relance « ✨ Préparer une réponse » pour une réponse basée sur cette commande.`);
+    } catch (err) {
+      if (el) el.disabled = false;
+      toast('Erreur : ' + err.message, true);
+    }
+  }
+
+  async function mergeInto(t, sourceId, el) {
+    if (!window.confirm("Fusionner l'autre conversation DANS celle-ci ?\n\nSes messages seront déplacés ici et elle sera archivée. Les réponses partiront par le canal de cette conversation-ci.\n\nRéversible avec « Défaire ».")) return;
+    const name = askName('Fusionner en tant que :');
+    if (!name) return;
+    if (el) el.disabled = true;
+    try {
+      const inv = t.ai_analysis && t.ai_analysis.investigation;
+      const evidence = inv && (inv.conversations || []).find((c) => c.ticket_id === sourceId);
+      const data = await api('/api/tickets/' + t.id + '/merge', { method: 'POST', body: { source_ticket_id: sourceId, merged_by: name, evidence: evidence || undefined } });
+      await refreshSelectedTicket();
+      if (typeof loadTickets === 'function') loadTickets();
+      toast(`🔀 Conversations fusionnées (${data.messages_moved} message(s) déplacé(s)).`);
+    } catch (err) {
+      if (el) el.disabled = false;
+      const code = err.payload && err.payload.error;
+      toast(code === 'source_already_merged' ? 'Cette conversation a déjà été fusionnée ailleurs.' : 'Erreur : ' + err.message, true);
+    }
+  }
+
+  async function loadMergeRow(ticketId) {
+    const row = document.getElementById('aiMergeRow');
+    if (!row) return;
+    try {
+      const data = await api('/api/tickets/' + ticketId + '/merge');
+      if (!state.selectedTicket || state.selectedTicket.id !== ticketId) return;
+      const parts = [];
+      (data.absorbed || []).forEach((m) => {
+        parts.push(`<span>🔀 Contient la conversation ${escapeHtml(m.channel || '')} ${escapeHtml([m.contact_name, m.contact_handle && '@' + m.contact_handle, m.contact_email].filter(Boolean).join(' · '))} (${m.messages} message(s), fusionnée par ${escapeHtml(m.merged_by || '')} ${escapeHtml(fmtDate(m.merged_at))})</span>
+          <a href="#" class="ai-muted" data-ai-undo-merge="${escapeHtml(m.id)}">défaire</a>`);
+      });
+      if (data.merged_into) {
+        parts.push(`<span>🔀 Cette conversation a été fusionnée dans une autre.</span> <a href="#" class="ai-muted" data-ai-open-ticket="${escapeHtml(data.merged_into.target_ticket_id)}">ouvrir</a>`);
+      }
+      // Conversations déjà absorbées : plus de bouton « Fusionner » dans l'enquête.
+      (data.absorbed || []).forEach((m) => {
+        document.querySelectorAll(`[data-ai-merge="${m.source_ticket_id}"]`).forEach((btn) => {
+          btn.outerHTML = '<span class="badge badge-score">✅ fusionnée</span>';
+        });
+      });
+      if (!parts.length) return;
+      row.innerHTML = parts.join(' ');
+      row.style.display = 'flex';
+      row.querySelectorAll('[data-ai-undo-merge]').forEach((el) => {
+        el.onclick = async (e) => {
+          e.preventDefault();
+          if (!window.confirm('Défaire cette fusion ? Les messages retournent dans leur conversation d\'origine.')) return;
+          const name = askName('Défaire la fusion en tant que :');
+          if (!name) return;
+          try {
+            await api('/api/tickets/' + ticketId + '/merge', { method: 'POST', body: { undo_merge_id: el.dataset.aiUndoMerge, undone_by: name } });
+            await refreshSelectedTicket();
+            if (typeof loadTickets === 'function') loadTickets();
+            toast('Fusion défaite.');
+          } catch (err) { toast('Erreur : ' + err.message, true); }
+        };
+      });
+      row.querySelectorAll('[data-ai-open-ticket]').forEach((el) => {
+        el.onclick = (e) => { e.preventDefault(); if (typeof selectTicket === 'function') selectTicket(el.dataset.aiOpenTicket); };
+      });
+    } catch (err) {
+      /* fusions indisponibles : on n'affiche rien */
+    }
   }
 
   // ---------- Commande gifting Shopify (ajout 2026-09-16) ----------
@@ -633,6 +802,9 @@
       <textarea id="aiSetForbidden"></textarea>
       <label>Autres consignes</label>
       <textarea id="aiSetExtra"></textarea>
+      <h3 style="margin-top:18px;">🔎 Enquête d'Alice (boutons « Préparer une réponse »)</h3>
+      <div class="ai-stats" id="aiSetInvStatus">…</div>
+      <div style="margin-top:8px;"><button class="btn" id="aiSetGmailConnect">📧 Connecter la boîte e-mail SAV</button></div>
       <h3 style="margin-top:18px;">🛍️ Commandes gifting Shopify</h3>
       <div class="ai-stats" id="aiSetGiftStatus">…</div>
       <div style="margin-top:8px;"><button class="btn" id="aiSetGiftConnect">🔗 Connecter Shopify (commandes gifting)</button></div>
@@ -682,6 +854,14 @@
       document.getElementById('aiSetAutoDraft').checked = st.auto_draft !== false;
       document.getElementById('aiSetGiftQuota').value = st.gifting_quota_per_colorway != null ? st.gifting_quota_per_colorway : 5;
       const g = data.gifting || {};
+      const gm = data.gmail || {};
+      document.getElementById('aiSetInvStatus').innerHTML = `
+        ${data.shopify_readonly ? '✅ Recherche de commandes Shopify active' : '⚠️ Recherche de commandes Shopify indisponible (accès lecture non connecté)'}<br>
+        ✅ Recherche dans les autres conversations de la messagerie<br>
+        ${gm.connected ? `✅ Boîte e-mail SAV connectée : ${escapeHtml(gm.email || '')} (lecture seule)`
+          : gm.app_configured ? '⚠️ Boîte e-mail SAV pas encore connectée : clique ci-dessous et choisis le compte de la boîte SAV.'
+            : '⚠️ Boîte e-mail SAV : app Google à configurer sur Vercel (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET), voir la procédure.'}`;
+      document.getElementById('aiSetGmailConnect').textContent = gm.connected ? '📧 Reconnecter la boîte e-mail SAV' : '📧 Connecter la boîte e-mail SAV';
       document.getElementById('aiSetGiftStatus').innerHTML = g.connected
         ? `✅ Shopify connecté : ${escapeHtml(g.shop_name || g.shop || '')} (droits : ${escapeHtml(g.scope || '?')})`
         : '⚠️ Shopify pas encore connecté pour les commandes gifting. Il faut d\'abord créer l\'app dédiée sur le Dev Dashboard et poser ses identifiants sur Vercel (voir la procédure), puis cliquer ci-dessous.';
@@ -732,6 +912,9 @@
   document.getElementById('aiSetCancel').onclick = () => modal.classList.remove('open');
   document.getElementById('aiSetSave').onclick = saveAiSettings;
   document.getElementById('aiSetClassifyBtn').onclick = classifyHistory;
+  document.getElementById('aiSetGmailConnect').onclick = () => {
+    window.open('/api/gmail/connect?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
+  };
   document.getElementById('aiSetGiftConnect').onclick = () => {
     window.open('/api/gifting/shopify-connect?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
   };

@@ -139,13 +139,14 @@ module.exports = async function handler(req, res) {
       // RLS dans cette appli (rôle applicatif en BYPASSRLS — voir
       // TRANSMISSION-Messagerie-Influence-SAV.md).
       const { rows: existing } = await client.query(
-        `SELECT id FROM tickets WHERE tenant_id = $1 AND channel = 'instagram' AND external_thread_id = $2 LIMIT 1`,
+        `SELECT id, merged_into_ticket_id FROM tickets WHERE tenant_id = $1 AND channel = 'instagram' AND external_thread_id = $2 LIMIT 1`,
         [tenantRow.id, externalThreadId]
       );
 
       let ticketId;
       if (existing[0]) {
-        ticketId = existing[0].id;
+        // Ajout 2026-09-17 : conversation fusionnée → ticket cible.
+        ticketId = existing[0].merged_into_ticket_id || existing[0].id;
         await client.query(
           `UPDATE tickets SET status = 'a_traiter', updated_at = now() WHERE id = $1 AND tenant_id = $2`,
           [ticketId, tenantRow.id]

@@ -62,4 +62,4 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
 });
 
 // Durée max de la fonction sur Vercel : un appel IA peut prendre 10 à 40 s.
-module.exports.config = { maxDuration: 120 };
+module.exports.config = { maxDuration: 300 };

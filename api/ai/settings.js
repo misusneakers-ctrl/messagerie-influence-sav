@@ -40,13 +40,26 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         ? { connected: true, shop: credRows[0].metadata?.shop || null, shop_name: credRows[0].metadata?.shop_name || null,
             scope: credRows[0].metadata?.scope || null, connected_at: credRows[0].metadata?.connected_at || credRows[0].updated_at }
         : { connected: false };
-      return { settings, stats: rows[0], gifting: giftingCred };
+      // Ajout 2026-09-17 (enquête d'Alice) : état de la boîte e-mail SAV et de
+      // l'accès Shopify en lecture (recherche de commandes).
+      const { rows: otherCreds } = await client.query(
+        `SELECT type, metadata FROM tenant_credentials WHERE tenant_id = $1 AND type IN ('gmail_readonly', 'shopify_readonly')`,
+        [tenant.id]
+      );
+      const gmailRow = otherCreds.find((c) => c.type === 'gmail_readonly');
+      const gmail = gmailRow
+        ? { connected: true, email: gmailRow.metadata?.email || null, connected_at: gmailRow.metadata?.connected_at || null }
+        : { connected: false, app_configured: !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET) };
+      const shopifyReadonly = otherCreds.some((c) => c.type === 'shopify_readonly');
+      return { settings, stats: rows[0], gifting: giftingCred, gmail, shopify_readonly: shopifyReadonly };
     });
     const neverAnalyzed = await countCandidates(tenant, 'classify');
     sendJson(res, 200, {
       settings: data.settings,
       stats: { ...data.stats, never_analyzed: neverAnalyzed },
       gifting: data.gifting,
+      gmail: data.gmail,
+      shopify_readonly: data.shopify_readonly,
       ai_configured: isConfigured(),
       model: getModel(),
     });
