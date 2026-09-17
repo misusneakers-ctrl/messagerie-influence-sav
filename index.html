@@ -1360,7 +1360,10 @@ function renderThread() {
     let actions = '';
     const needsAction = m.direction === 'outbound' && (m.status === 'draft' || m.status === 'validated');
     if (m.direction === 'outbound' && m.status === 'draft') {
-      actions = `<div class="actions"><button class="btn" data-action="validate" data-id="${m.id}">Valider</button></div>`;
+      // Correctif 2026-09-17 : « Envoyer » sur un brouillon valide ET envoie en
+      // un seul clic (avant, il fallait « Valider » puis « Envoyer »).
+      // « Valider seulement » reste possible pour mettre de côté sans envoyer.
+      actions = `<div class="actions"><button class="btn btn-primary" data-action="send-draft" data-id="${m.id}">Envoyer</button> <button class="btn" data-action="validate" data-id="${m.id}">Valider seulement</button></div>`;
     } else if (m.direction === 'outbound' && m.status === 'validated') {
       actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button></div>`;
     }
@@ -1410,6 +1413,9 @@ function renderThread() {
   });
   threadEl.querySelectorAll('[data-action="send"]').forEach((btn) => {
     btn.onclick = () => sendMessage(btn.dataset.id);
+  });
+  threadEl.querySelectorAll('[data-action="send-draft"]').forEach((btn) => {
+    btn.onclick = () => sendDraftNow(btn.dataset.id, btn);
   });
 }
 
@@ -1504,12 +1510,47 @@ async function createDraft() {
 // configuré, erreur Meta…), le brouillon déjà créé reste en place : rien
 // n'est perdu, il suffit de le valider et l'envoyer depuis la file de
 // validation comme n'importe quel autre brouillon.
+// Correctif 2026-09-17 : les messages partent au nom de l'assistante de la
+// marque (Alice pour BBP, Louise pour Misü — prénom de signature réglé dans
+// « ✨ Assistante IA », chargé par ai-ui.js), plus au nom de Luc par défaut.
+function defaultSenderName() {
+  const names = window.msavSignatureNames || {};
+  return names[state.tenant] || (state.tenant === 'misu' ? 'Louise' : 'Alice');
+}
+
+// Correctif 2026-09-17 : bouton « Envoyer » d'un brouillon dans le fil —
+// validation puis envoi enchaînés, un seul nom demandé. Si l'envoi échoue
+// (hors fenêtre 24h, erreur Meta…), le message reste « validated » et le
+// bouton « Envoyer » permet de réessayer.
+async function sendDraftNow(messageId, btn) {
+  const approvedBy = window.prompt('Envoyer ce message en tant que :', defaultSenderName());
+  if (!approvedBy) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Envoi…'; }
+  let validated = false;
+  try {
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/validate', {
+      method: 'PATCH',
+      body: { validated_by: approvedBy },
+    });
+    validated = true;
+    await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/send', {
+      method: 'POST',
+      body: { idempotency_key: crypto.randomUUID(), approved_by: approvedBy },
+    });
+    await refreshSelectedTicket();
+    toast('Message envoyé.');
+  } catch (err) {
+    await refreshSelectedTicket();
+    toast((validated ? "Message validé, mais l'envoi a échoué : " : 'Erreur : ') + err.message, true);
+  }
+}
+
 async function sendDirectly() {
   const input = document.getElementById('composerInput');
   const body = normalizeBodyForDisplay(input.value);
   const attachments = state.pendingAttachment ? [state.pendingAttachment] : [];
   if (!body && attachments.length === 0) return;
-  const approvedBy = window.prompt('Envoyer ce message directement en tant que :', 'Luc');
+  const approvedBy = window.prompt('Envoyer ce message directement en tant que :', defaultSenderName());
   if (!approvedBy) return;
 
   const btn = document.getElementById('sendDirectBtn');
@@ -1553,7 +1594,7 @@ async function sendDirectly() {
 }
 
 async function validateMessage(messageId) {
-  const validatedBy = window.prompt('Valider ce brouillon en tant que :', 'Luc');
+  const validatedBy = window.prompt('Valider ce brouillon en tant que :', defaultSenderName());
   if (!validatedBy) return;
   try {
     await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/validate', {
@@ -1572,7 +1613,7 @@ async function sendMessage(messageId) {
   // clé d'idempotence — corrigé ici : cet appel échouait systématiquement en
   // 400 (approved_by manquant) avant ce correctif, masqué jusqu'ici par le
   // fait que l'Instagram n'était de toute façon pas encore configuré.
-  const approvedBy = window.prompt('Envoyer ce message en tant que :', 'Luc');
+  const approvedBy = window.prompt('Envoyer ce message en tant que :', defaultSenderName());
   if (!approvedBy) return;
   try {
     await api('/api/tickets/' + state.selectedTicket.id + '/messages/' + messageId + '/send', {
@@ -1855,7 +1896,7 @@ function updateQueueToolbar() {
 async function processQueueSelection() {
   const n = state.queue.selected.size;
   if (n === 0) return;
-  const approvedBy = window.prompt(`Valider et envoyer ces ${n} message(s) en tant que :`, 'Luc');
+  const approvedBy = window.prompt(`Valider et envoyer ces ${n} message(s) en tant que :`, defaultSenderName());
   if (!approvedBy) return;
 
   const byId = new Map(state.queue.items.map((it) => [it.message_id, it]));
@@ -2144,6 +2185,6 @@ async function init() {
 init();
 </script>
 <!-- Ajout 2026-09-16 : interface des brouillons IA (assistante Alice/Louise) — tout le code est dans ai-ui.js -->
-<script src="/ai-ui.js?v=20260916b"></script>
+<script src="/ai-ui.js?v=20260917a"></script>
 </body>
 </html>
