@@ -2,9 +2,8 @@
 // Lecture seule du contexte Shopify pour traiter un ticket SAV, y compris le
 // statut de retour. Ne modifie jamais rien côté Shopify.
 const { withTenantHandler, sendJson } = require('../../lib/handler');
-const { withTenant } = require('../../lib/db');
-const { decrypt } = require('../../lib/crypto');
 const { getOrderContext } = require('../../lib/channels/shopify-readonly');
+const { getReadonlyAccessToken } = require('../../lib/shopify/readonly-token');
 
 module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method !== 'GET') {
@@ -17,21 +16,17 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     return;
   }
 
-  const cred = await withTenant(tenant.id, async (client) => {
-    const { rows } = await client.query(
-      `SELECT encrypted_value FROM tenant_credentials WHERE tenant_id = $1 AND type = 'shopify_readonly'`,
-      [tenant.id]
-    );
-    return rows[0] || null;
-  });
+  // Correctif 2026-09-17 : lecture du jeton déléguée à
+  // lib/shopify/readonly-token.js (jeton permanent OU jeton OAuth expirant
+  // rafraîchi automatiquement).
+  const accessToken = await getReadonlyAccessToken(tenant);
 
-  if (!cred) {
+  if (!accessToken) {
     sendJson(res, 409, { error: 'shopify_readonly_not_configured_for_tenant' });
     return;
   }
 
   try {
-    const accessToken = decrypt(cred.encrypted_value);
     const context = await getOrderContext({
       shopDomain: tenant.myshopify_domain,
       accessToken,
