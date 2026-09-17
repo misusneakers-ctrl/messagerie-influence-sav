@@ -11,7 +11,10 @@ const { logAudit } = require('../../lib/audit');
 const { loadAiSettings, countCandidates } = require('../../lib/ai/assistant');
 const { isConfigured, getModel } = require('../../lib/ai/anthropic');
 
-const TEXT_FIELDS = ['signature_name', 'brand_name', 'brand_voice', 'gifting_rules', 'profile_criteria', 'forbidden_topics', 'extra_instructions'];
+const TEXT_FIELDS = ['signature_name', 'brand_name', 'brand_voice', 'gifting_rules', 'profile_criteria', 'forbidden_topics', 'extra_instructions',
+  // Commande gifting (ajout 2026-09-16)
+  'gifting_discount_title', 'gifting_shipping_title_fr', 'gifting_shipping_title_intl'];
+const NOT_NULL_TEXT = ['signature_name', 'gifting_discount_title', 'gifting_shipping_title_fr', 'gifting_shipping_title_intl'];
 const BOOL_FIELDS = ['enabled', 'auto_draft'];
 const MAX_TEXT = 4000;
 
@@ -29,12 +32,21 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
            (SELECT count(*)::int FROM tickets WHERE tenant_id = $1 AND ai_analyzed_at IS NOT NULL) AS analyzed`,
         [tenant.id]
       );
-      return { settings, stats: rows[0] };
+      const { rows: credRows } = await client.query(
+        `SELECT metadata, updated_at FROM tenant_credentials WHERE tenant_id = $1 AND type = 'shopify_gifting'`,
+        [tenant.id]
+      );
+      const giftingCred = credRows[0]
+        ? { connected: true, shop: credRows[0].metadata?.shop || null, shop_name: credRows[0].metadata?.shop_name || null,
+            scope: credRows[0].metadata?.scope || null, connected_at: credRows[0].metadata?.connected_at || credRows[0].updated_at }
+        : { connected: false };
+      return { settings, stats: rows[0], gifting: giftingCred };
     });
     const neverAnalyzed = await countCandidates(tenant, 'classify');
     sendJson(res, 200, {
       settings: data.settings,
       stats: { ...data.stats, never_analyzed: neverAnalyzed },
+      gifting: data.gifting,
       ai_configured: isConfigured(),
       model: getModel(),
     });
@@ -53,9 +65,19 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     for (const f of BOOL_FIELDS) {
       if (body[f] !== undefined) values[f] = !!body[f];
     }
-    if (values.signature_name === null) {
-      sendJson(res, 400, { error: 'signature_name_required' });
-      return;
+    for (const f of NOT_NULL_TEXT) {
+      if (values[f] === null) {
+        sendJson(res, 400, { error: `${f}_required` });
+        return;
+      }
+    }
+    if (body.gifting_quota_per_colorway !== undefined) {
+      const n = parseInt(body.gifting_quota_per_colorway, 10);
+      if (isNaN(n) || n < 0 || n > 1000) {
+        sendJson(res, 400, { error: 'invalid_gifting_quota' });
+        return;
+      }
+      values.gifting_quota_per_colorway = n;
     }
     const fields = Object.keys(values);
     if (fields.length === 0) {
