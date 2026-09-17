@@ -10,7 +10,8 @@
 //                       nouveaux messages (brouillons Influence) ;
 // - renderDetail      : ajoute le panneau « ✨ Assistante IA » dans un ticket
 //                       (résumé, alertes, recommandation, Accepter/Refuser,
-//                       consigne + bouton « Préparer une réponse ») ;
+//                       consigne + bouton « Préparer une réponse », et
+//                       depuis le 16/09 la commande gifting Shopify à 0 €) ;
 // - renderThread      : marque les brouillons rédigés par l'IA ;
 // - renderQueue       : affiche alertes, justification et coordonnées d'envoi
 //                       dans la file de validation.
@@ -166,7 +167,10 @@
         <a href="#" id="aiCopyShip" class="ai-muted">Copier</a></div>`);
     }
 
+    if (isInfluence) parts.push('<div class="ai-row" id="aiGiftingRow"><span class="ai-muted">🛍️ Commande gifting : chargement…</span></div>');
+
     box.innerHTML = parts.join('');
+    if (isInfluence) loadGiftingRow(t.id);
 
     const draftBtn = document.getElementById('aiDraftBtn');
     draftBtn.onclick = () => requestAiDraft(draftBtn);
@@ -183,6 +187,255 @@
       catch (err) { toast('Copie impossible — sélectionne le texte à la main.', true); }
     };
   }
+
+  // ---------- Commande gifting Shopify (ajout 2026-09-16) ----------
+  // « Alice prépare, tu cliques » : la fenêtre est pré-remplie à partir de la
+  // conversation (modèle, pointure, coordonnées) ; la commande à 0 € n'est
+  // créée qu'au clic de Luc. Garde-fous serveur : lib/gifting/orders.js.
+  const GIFT_ERRORS = {
+    gifting_not_approved: "La collaboration n'est pas acceptée : clique d'abord « Accepter le gifting ».",
+    shopify_gifting_not_connected: 'Shopify n\'est pas encore connecté pour les commandes gifting (« ✨ Assistante IA » → Connecter Shopify).',
+    shopify_gifting_missing_scope: "L'app Shopify connectée n'a pas le droit de créer des commandes (write_draft_orders).",
+    order_in_progress: 'Une commande est déjà en cours de création pour cette conversation.',
+    missing_fields: 'Champs obligatoires manquants',
+    invalid_country_code: 'Code pays invalide (2 lettres, ex. FR, BE).',
+    invalid_email: 'E-mail invalide.',
+    variant_not_found: 'Pointure introuvable pour ce modèle.',
+    product_lookup_failed: 'Impossible de lire la fiche produit sur la boutique.',
+    quota_check_failed: 'Impossible de vérifier le quota sur Shopify.',
+  };
+
+  async function loadGiftingRow(ticketId) {
+    const row = document.getElementById('aiGiftingRow');
+    if (!row) return;
+    try {
+      const data = await api('/api/tickets/' + ticketId + '/gifting-order');
+      if (!state.selectedTicket || state.selectedTicket.id !== ticketId) return;
+      const created = data.orders.filter((o) => o.status === 'created');
+      const failed = data.orders.filter((o) => o.status === 'failed').slice(0, 1);
+      const parts = ['<span class="ai-muted">🛍️ Commande gifting :</span>'];
+      created.forEach((o) => parts.push(`<span class="badge badge-score" title="par ${escapeHtml(o.created_by || '')}">✅ ${escapeHtml(o.order_name || '')} · ${escapeHtml(o.product_title || '')} ${escapeHtml(o.size || '')} · ${escapeHtml(fmtDate(o.created_at))}</span>`));
+      failed.forEach((o) => parts.push(`<span class="badge badge-alert bad" title="${escapeHtml(o.error || '')}">❌ échec ${escapeHtml(fmtDate(o.created_at))}</span>`));
+      if (!data.approved_by) {
+        parts.push('<span class="ai-muted">possible une fois la collaboration acceptée.</span>');
+      } else if (!data.connected) {
+        parts.push('<span class="ai-muted">Shopify pas encore connecté (« ✨ Assistante IA » → Connecter Shopify).</span>');
+      } else {
+        parts.push(`<button class="btn" id="aiGiftOpenBtn">🛍️ ${created.length ? 'Nouvelle commande' : 'Préparer la commande Shopify'}</button>`);
+      }
+      row.innerHTML = parts.join(' ');
+      const btn = document.getElementById('aiGiftOpenBtn');
+      if (btn) btn.onclick = () => openGiftingModal(ticketId);
+    } catch (err) {
+      row.innerHTML = '<span class="ai-muted">🛍️ Commande gifting : indisponible (' + escapeHtml(err.message) + ')</span>';
+    }
+  }
+
+  const giftModal = document.createElement('div');
+  giftModal.className = 'modal-backdrop';
+  giftModal.id = 'aiGiftModal';
+  giftModal.innerHTML = `
+    <div class="modal modal-wide ai-settings">
+      <h3>🛍️ Commande gifting à 0 € — <span id="giftContact"></span></h3>
+      <div class="ai-stats" id="giftInfo">Chargement…</div>
+      <label>Modèle (recherche sur la boutique)</label>
+      <div style="display:flex;gap:6px;"><input type="text" id="giftSearch" placeholder="Ex. Elisabeth léopard" /><button class="btn" id="giftSearchBtn">Rechercher</button></div>
+      <label>Produit</label>
+      <select id="giftProduct"></select>
+      <label>Pointure</label>
+      <select id="giftVariant"></select>
+      <div class="ai-stats" id="giftQuota" style="display:none;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">
+        <div><label>Prénom</label><input type="text" id="giftFirst" /></div>
+        <div><label>Nom</label><input type="text" id="giftLast" /></div>
+      </div>
+      <label>Adresse</label>
+      <input type="text" id="giftAddr1" />
+      <label>Complément d'adresse</label>
+      <input type="text" id="giftAddr2" />
+      <div style="display:grid;grid-template-columns:1fr 2fr 1fr;gap:0 10px;">
+        <div><label>Code postal</label><input type="text" id="giftZip" /></div>
+        <div><label>Ville</label><input type="text" id="giftCity" /></div>
+        <div><label>Pays (FR, BE…)</label><input type="text" id="giftCountry" maxlength="2" /></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">
+        <div><label>Téléphone</label><input type="text" id="giftPhone" /></div>
+        <div><label>E-mail</label><input type="text" id="giftEmail" /></div>
+      </div>
+      <div class="ai-stats" id="giftSummary" style="margin-top:10px;"></div>
+      <div class="actions">
+        <button class="btn" id="giftCancel">Annuler</button>
+        <button class="btn btn-primary" id="giftCreate">Créer la commande à 0 €</button>
+      </div>
+    </div>`;
+  document.body.appendChild(giftModal);
+
+  const gift = { ticketId: null, products: [], settings: {}, idempotencyKey: null };
+
+  function giftSelectedProduct() {
+    return gift.products.find((p) => p.handle === document.getElementById('giftProduct').value) || null;
+  }
+  function giftSelectedVariant() {
+    const p = giftSelectedProduct();
+    return p ? (p.variants || []).find((v) => v.variant_id === document.getElementById('giftVariant').value) || null : null;
+  }
+
+  function renderGiftProducts(selectedHandle, selectedVariantId, prefetchedQuota) {
+    const sel = document.getElementById('giftProduct');
+    sel.innerHTML = gift.products.length
+      ? gift.products.map((p) => `<option value="${escapeHtml(p.handle)}" ${p.handle === selectedHandle ? 'selected' : ''}>${escapeHtml(p.title || p.handle)}${p.available === false ? ' (épuisé)' : ''}</option>`).join('')
+      : '<option value="">Aucun produit — lance une recherche</option>';
+    renderGiftVariants(selectedVariantId, prefetchedQuota);
+  }
+
+  function renderGiftVariants(selectedVariantId, prefetchedQuota) {
+    const p = giftSelectedProduct();
+    const sel = document.getElementById('giftVariant');
+    const variants = p ? p.variants || [] : [];
+    sel.innerHTML = variants.length
+      ? '<option value="">— choisir —</option>' + variants.map((v) => `<option value="${escapeHtml(v.variant_id)}" ${v.variant_id === selectedVariantId ? 'selected' : ''}>${escapeHtml(v.size)}${v.available ? '' : ' — indisponible'}</option>`).join('')
+      : '<option value="">—</option>';
+    refreshGiftQuota(prefetchedQuota);
+  }
+
+  async function refreshGiftQuota(prefetched) {
+    const box = document.getElementById('giftQuota');
+    const v = giftSelectedVariant();
+    updateGiftSummary();
+    if (!v || !v.sku) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.textContent = 'Quota : vérification…';
+    try {
+      const quota = prefetched || (await api('/api/gifting/products?quota_sku=' + encodeURIComponent(v.sku))).quota;
+      if (giftSelectedVariant() !== v) return;
+      if (quota.count == null) {
+        box.innerHTML = `⚠️ Quota non vérifiable (${escapeHtml(quota.error || 'erreur')}) — modèle ${escapeHtml(quota.colorway_key || '')}.`;
+      } else {
+        const full = quota.count >= quota.limit;
+        box.innerHTML = `${full ? '⛔' : '✅'} Quota ${escapeHtml(quota.collection || '')} pour ce modèle/coloris (${escapeHtml(quota.colorway_key)}) : <strong>${quota.count}/${quota.limit}</strong> paire(s) déjà offerte(s)${quota.orders && quota.orders.length ? ' (' + quota.orders.map(escapeHtml).join(', ') + ')' : ''}.`;
+      }
+    } catch (err) {
+      box.textContent = 'Quota : erreur (' + err.message + ')';
+    }
+  }
+
+  function updateGiftSummary() {
+    const v = giftSelectedVariant();
+    const p = giftSelectedProduct();
+    const cc = document.getElementById('giftCountry').value.trim().toUpperCase();
+    const ship = cc === 'FR' ? (gift.settings.shipping_title_fr || 'Colissimo') : (gift.settings.shipping_title_intl || 'UPS International');
+    document.getElementById('giftSummary').innerHTML = p && v
+      ? `Commande Shopify : <strong>${escapeHtml(p.title)} — ${escapeHtml(v.size)}</strong>${v.available ? '' : ' <span style="color:var(--red)">(indisponible)</span>'} · remise 100 % « ${escapeHtml(gift.settings.discount_title || 'Gifting influence Instagram')} » · livraison ${escapeHtml(ship)} offerte · total 0 €. Aucun e-mail de confirmation n'est prévu : pense à prévenir la personne en DM.`
+      : 'Choisis le modèle et la pointure.';
+  }
+
+  async function openGiftingModal(ticketId) {
+    gift.ticketId = ticketId;
+    gift.idempotencyKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+    const t = state.selectedTicket;
+    document.getElementById('giftContact').textContent = t ? (t.contact_name || t.contact_handle || '') : '';
+    document.getElementById('giftInfo').textContent = 'Préparation de la commande par l\'assistante…';
+    giftModal.classList.add('open');
+    try {
+      const data = await api('/api/tickets/' + ticketId + '/gifting-order?mode=proposal');
+      gift.products = data.candidates || [];
+      gift.settings = data.settings || {};
+      const item = data.requested_item;
+      document.getElementById('giftInfo').innerHTML = item
+        ? `Demande repérée dans la conversation : <strong>${escapeHtml([item.model, item.color, item.size && ('pointure ' + item.size)].filter(Boolean).join(' · '))}</strong>. Vérifie tout avant de valider.`
+        : "L'assistante n'a pas repéré de modèle dans la conversation : recherche-le ci-dessous.";
+      if (data.product_error) document.getElementById('giftInfo').innerHTML += '<br>⚠️ Boutique injoignable : ' + escapeHtml(data.product_error);
+      document.getElementById('giftSearch').value = item ? [item.model, item.color].filter(Boolean).join(' ') : '';
+      const a = data.address || {};
+      document.getElementById('giftFirst').value = a.first_name || '';
+      document.getElementById('giftLast').value = a.last_name || '';
+      document.getElementById('giftAddr1').value = a.address1 || '';
+      document.getElementById('giftAddr2').value = a.address2 || '';
+      document.getElementById('giftZip').value = a.zip || '';
+      document.getElementById('giftCity').value = a.city || '';
+      document.getElementById('giftCountry').value = a.country_code || '';
+      document.getElementById('giftPhone').value = a.phone || '';
+      document.getElementById('giftEmail').value = a.email || '';
+      renderGiftProducts(data.selected && data.selected.product_handle, data.selected && data.selected.variant_id, data.quota || undefined);
+    } catch (err) {
+      document.getElementById('giftInfo').textContent = 'Erreur : ' + err.message;
+    }
+  }
+
+  async function searchGiftProducts() {
+    const q = document.getElementById('giftSearch').value.trim();
+    if (!q) return;
+    const btn = document.getElementById('giftSearchBtn');
+    btn.disabled = true;
+    try {
+      const data = await api('/api/gifting/products?q=' + encodeURIComponent(q));
+      gift.products = data.products || [];
+      renderGiftProducts(gift.products[0] && gift.products[0].handle, null);
+    } catch (err) {
+      toast('Recherche impossible : ' + err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function submitGiftOrder(overrides = {}) {
+    const p = giftSelectedProduct();
+    const v = giftSelectedVariant();
+    if (!p || !v) { toast('Choisis le modèle et la pointure.', true); return; }
+    const name = overrides._name || askName('Créer cette commande gifting (0 €) en tant que :');
+    if (!name) return;
+    const body = {
+      product_handle: p.handle, variant_id: v.variant_id,
+      first_name: document.getElementById('giftFirst').value, last_name: document.getElementById('giftLast').value,
+      address1: document.getElementById('giftAddr1').value, address2: document.getElementById('giftAddr2').value,
+      zip: document.getElementById('giftZip').value, city: document.getElementById('giftCity').value,
+      country_code: document.getElementById('giftCountry').value.trim().toUpperCase(),
+      phone: document.getElementById('giftPhone').value, email: document.getElementById('giftEmail').value,
+      created_by: name, idempotency_key: gift.idempotencyKey,
+      override_quota: !!overrides.override_quota, override_stock: !!overrides.override_stock, override_duplicate: !!overrides.override_duplicate,
+    };
+    const btn = document.getElementById('giftCreate');
+    btn.disabled = true;
+    btn.textContent = '⏳ Création sur Shopify…';
+    try {
+      const data = await api('/api/tickets/' + gift.ticketId + '/gifting-order', { method: 'POST', body });
+      giftModal.classList.remove('open');
+      const orderName = data.gifting_order && data.gifting_order.order_name;
+      toast(`✅ Commande ${orderName || ''} créée sur Shopify (0 €).`);
+      await refreshSelectedTicket();
+      const instr = document.getElementById('aiInstruction');
+      if (instr) instr.value = `La commande gifting ${orderName || ''} est créée : confirme à la personne que sa paire (${p.title} en ${v.size}) part en préparation et qu'elle recevra le suivi.`;
+    } catch (err) {
+      const pl = err.payload || {};
+      const retry = (extra, question) => { if (window.confirm(question)) submitGiftOrder({ ...overrides, ...extra, _name: name }); };
+      if (pl.error === 'quota_reached') {
+        retry({ override_quota: true }, `Quota atteint : ${pl.count}/${pl.limit} paires déjà offertes pour ce modèle/coloris (${pl.colorway_key}).\n\nCréer quand même la commande ?`);
+      } else if (pl.error === 'variant_unavailable') {
+        retry({ override_stock: true }, `La pointure ${pl.size || ''} est indiquée indisponible sur la boutique.\n\nCréer quand même la commande ?`);
+      } else if (pl.error === 'already_ordered') {
+        retry({ override_duplicate: true }, `Une commande gifting (${pl.order_name}) existe déjà pour cette conversation.\n\nEn créer une seconde ?`);
+      } else if (pl.error === 'quota_check_failed') {
+        retry({ override_quota: true }, `Le quota n'a pas pu être vérifié sur Shopify (${pl.detail || 'erreur'}).\n\nCréer quand même la commande ?`);
+      } else {
+        let msg = GIFT_ERRORS[pl.error] || pl.message || err.message;
+        if (pl.error === 'missing_fields' && pl.fields) msg += ' : ' + pl.fields.join(', ');
+        if (pl.draft_order_name) msg += ` — brouillon ${pl.draft_order_name} créé mais non validé : à finir dans Shopify.`;
+        toast('Commande non créée : ' + msg, true);
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Créer la commande à 0 €';
+    }
+  }
+
+  document.getElementById('giftCancel').onclick = () => giftModal.classList.remove('open');
+  document.getElementById('giftCreate').onclick = () => submitGiftOrder();
+  document.getElementById('giftSearchBtn').onclick = searchGiftProducts;
+  document.getElementById('giftSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchGiftProducts(); });
+  document.getElementById('giftProduct').onchange = () => renderGiftVariants(null);
+  document.getElementById('giftVariant').onchange = () => refreshGiftQuota();
+  document.getElementById('giftCountry').oninput = updateGiftSummary;
+  giftModal.addEventListener('click', (e) => { if (e.target === giftModal) giftModal.classList.remove('open'); });
 
   async function requestAiDraft(btn) {
     const t = state.selectedTicket;
@@ -361,6 +614,17 @@
       <textarea id="aiSetForbidden"></textarea>
       <label>Autres consignes</label>
       <textarea id="aiSetExtra"></textarea>
+      <h3 style="margin-top:18px;">🛍️ Commandes gifting Shopify</h3>
+      <div class="ai-stats" id="aiSetGiftStatus">…</div>
+      <div style="margin-top:8px;"><button class="btn" id="aiSetGiftConnect">🔗 Connecter Shopify (commandes gifting)</button></div>
+      <label>Quota : paires offertes maximum par modèle/coloris sur une collection</label>
+      <input type="number" id="aiSetGiftQuota" min="0" max="1000" />
+      <label>Intitulé de la remise 100 % (sert aussi à compter le quota)</label>
+      <input type="text" id="aiSetGiftDiscount" />
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">
+        <div><label>Livraison France</label><input type="text" id="aiSetGiftShipFr" /></div>
+        <div><label>Livraison étranger</label><input type="text" id="aiSetGiftShipIntl" /></div>
+      </div>
       <div class="actions" style="justify-content:space-between;flex-wrap:wrap;">
         <button class="btn" id="aiSetClassifyBtn" title="Analyse et reclasse les conversations jamais analysées. Ne crée aucun brouillon.">🗂️ Analyser l'historique</button>
         <div style="display:flex;gap:8px;">
@@ -374,6 +638,7 @@
   const FIELD_IDS = {
     signature_name: 'aiSetSignature', brand_name: 'aiSetBrand', brand_voice: 'aiSetVoice', gifting_rules: 'aiSetGifting',
     profile_criteria: 'aiSetCriteria', forbidden_topics: 'aiSetForbidden', extra_instructions: 'aiSetExtra',
+    gifting_discount_title: 'aiSetGiftDiscount', gifting_shipping_title_fr: 'aiSetGiftShipFr', gifting_shipping_title_intl: 'aiSetGiftShipIntl',
   };
 
   function renderAiStats(data) {
@@ -395,6 +660,12 @@
       Object.entries(FIELD_IDS).forEach(([field, id]) => { document.getElementById(id).value = st[field] || ''; });
       document.getElementById('aiSetEnabled').checked = st.enabled !== false;
       document.getElementById('aiSetAutoDraft').checked = st.auto_draft !== false;
+      document.getElementById('aiSetGiftQuota').value = st.gifting_quota_per_colorway != null ? st.gifting_quota_per_colorway : 5;
+      const g = data.gifting || {};
+      document.getElementById('aiSetGiftStatus').innerHTML = g.connected
+        ? `✅ Shopify connecté : ${escapeHtml(g.shop_name || g.shop || '')} (droits : ${escapeHtml(g.scope || '?')})`
+        : '⚠️ Shopify pas encore connecté pour les commandes gifting. Il faut d\'abord créer l\'app dédiée sur le Dev Dashboard et poser ses identifiants sur Vercel (voir la procédure), puis cliquer ci-dessous.';
+      document.getElementById('aiSetGiftConnect').textContent = g.connected ? '🔗 Reconnecter Shopify' : '🔗 Connecter Shopify (commandes gifting)';
       renderAiStats(data);
     } catch (err) {
       document.getElementById('aiSetStats').textContent = 'Erreur de chargement : ' + err.message;
@@ -407,6 +678,8 @@
     const body = { updated_by: name, enabled: document.getElementById('aiSetEnabled').checked, auto_draft: document.getElementById('aiSetAutoDraft').checked };
     Object.entries(FIELD_IDS).forEach(([field, id]) => { body[field] = document.getElementById(id).value; });
     if (!body.signature_name.trim()) { toast('Le prénom de signature est obligatoire.', true); return; }
+    const quota = document.getElementById('aiSetGiftQuota').value.trim();
+    if (quota !== '') body.gifting_quota_per_colorway = parseInt(quota, 10);
     try {
       await api('/api/ai/settings', { method: 'PUT', body });
       toast('Réglages IA enregistrés — appliqués dès le prochain brouillon.');
@@ -438,6 +711,9 @@
   document.getElementById('aiSetCancel').onclick = () => modal.classList.remove('open');
   document.getElementById('aiSetSave').onclick = saveAiSettings;
   document.getElementById('aiSetClassifyBtn').onclick = classifyHistory;
+  document.getElementById('aiSetGiftConnect').onclick = () => {
+    window.open('/api/gifting/shopify-connect?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
+  };
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('open'); });
 
   const headerBtn = document.createElement('button');
