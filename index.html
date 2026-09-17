@@ -97,11 +97,22 @@
 
   .list-toolbar{display:flex;align-items:center;gap:6px;padding:8px 10px 4px;font-size:12px;color:var(--muted);}
   .list-toolbar select{padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff;}
+  /* Ajout 2026-09-17 : barre d'actions groupées (cases à cocher de la liste). */
+  .list-bulkbar{display:flex;align-items:center;gap:8px;padding:6px 10px 8px;font-size:12px;
+    color:var(--muted);border-bottom:1px solid var(--border);flex-wrap:wrap;}
+  .list-bulkbar label{display:flex;align-items:center;gap:5px;cursor:pointer;}
+  .list-bulkbar .spacer{flex:1;}
+  .list-bulkbar .btn{padding:3px 8px;font-size:12px;}
   .ticket-list{padding:6px;}
   .ticket-item{padding:10px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;border:1px solid transparent;}
   .ticket-item:hover{background:var(--bg);}
   .ticket-item.active{background:var(--accent-bg);border-color:#c7dafe;}
   .ticket-item .row1{display:flex;justify-content:space-between;align-items:baseline;gap:6px;}
+  /* Ajout 2026-09-17 : case à cocher de sélection multiple dans la liste. */
+  .ticket-item{display:flex;gap:8px;align-items:flex-start;}
+  .ticket-item .tk-check{padding-top:2px;}
+  .ticket-item .tk-check input{cursor:pointer;}
+  .ticket-item .tk-body{flex:1;min-width:0;}
   .ticket-item .name{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .ticket-item .date{font-size:11px;color:var(--muted);white-space:nowrap;}
   .ticket-item .meta{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;}
@@ -112,6 +123,11 @@
   .badge-cat{background:#f1f0fe;color:#5b21b6;}
   .badge-status{background:#f3f4f6;color:#374151;}
   .badge-channel{background:#eef2ff;color:#4338ca;}
+  /* Ajout 2026-09-17, demandé par Luc : repérer d'un coup d'œil, dans la
+     liste, si une conversation vient d'Instagram ou d'un e-mail. Deux
+     couleurs distinctes + une icône, plutôt que le mot brut en gris-bleu. */
+  .badge-chan-email{background:#dbeafe;color:#1d4ed8;}
+  .badge-chan-instagram{background:#fce7f3;color:#9d174d;}
   .badge-alert{background:#fef3c7;color:#92400e;}
   .badge-alert.bad{background:#fee2e2;color:#991b1b;}
   .badge-score{background:#ecfdf5;color:#065f46;}
@@ -368,6 +384,14 @@
         <option value="asc">Plus anciens d'abord</option>
       </select>
     </div>
+    <!-- Ajout 2026-09-17 : sélection multiple + archivage / suppression en lot. -->
+    <div class="list-bulkbar">
+      <label><input type="checkbox" id="listSelectAll" /> Tout cocher</label>
+      <span id="listSelectedHint"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="bulkArchiveBtn" disabled>📦 Archiver</button>
+      <button class="btn btn-danger" id="bulkDeleteBtn" disabled>🗑 Supprimer</button>
+    </div>
     <div class="ticket-list" id="ticketList"><div class="empty">Chargement…</div></div>
   </div>
 
@@ -537,6 +561,7 @@ const state = {
   ticketSortOrder: 'desc', // 'desc' (plus récent d'abord, défaut) | 'asc' — tri de la LISTE des tickets, correctif 2026-09-15
   categories: [], // [{id,label,sort_order,is_default}]
   statuses: [],
+  listSelected: new Set(), // ids des tickets cochés dans la liste — ajout 2026-09-17
   queue: {
     items: [],
     group: 'messagerie', // 'messagerie' | 'influence'
@@ -675,29 +700,149 @@ function renderTicketList() {
   const listEl = document.getElementById('ticketList');
   if (state.tickets.length === 0) {
     listEl.innerHTML = '<div class="empty">' + (state.showArchived ? 'Aucun ticket archivé.' : 'Aucun ticket ici.') + '</div>';
+    state.listSelected.clear();
+    updateListBulkBar();
     return;
   }
+  // Une conversation qui n'est plus dans la liste (filtre, archivage,
+  // suppression) ne doit pas rester cochée en arrière-plan.
+  const visibleIds = new Set(state.tickets.map((t) => t.id));
+  Array.from(state.listSelected).forEach((id) => { if (!visibleIds.has(id)) state.listSelected.delete(id); });
   listEl.innerHTML = '';
   state.tickets.forEach((t) => {
     const item = document.createElement('div');
     item.className = 'ticket-item' + (state.selectedTicket && state.selectedTicket.id === t.id ? ' active' : '');
     const name = t.contact_name || t.contact_handle || t.contact_email || '(sans nom)';
     item.innerHTML = `
-      <div class="row1">
-        <div class="name">${escapeHtml(name)}</div>
-        <div class="date">${fmtDate(t.last_message_at || t.updated_at)}</div>
+      <div class="tk-check"><input type="checkbox" data-id="${escapeHtml(t.id)}" ${state.listSelected.has(t.id) ? 'checked' : ''} title="Sélectionner" /></div>
+      <div class="tk-body">
+        <div class="row1">
+          <div class="name">${escapeHtml(name)}</div>
+          <div class="date">${fmtDate(t.last_message_at || t.updated_at)}</div>
+        </div>
+        <div class="meta">
+          ${channelBadgeHtml(t.channel)}
+          <span class="badge badge-cat">${escapeHtml(t.category)}</span>
+          <span class="badge badge-status" style="background:${statusBg(t.status)};color:${statusFg(t.status)};">${escapeHtml(t.status)}</span>
+          ${t.archived_at ? '<span class="badge badge-alert">📦 archivé</span>' : ''}
+        </div>
+        ${t.summary ? `<div class="summary">${escapeHtml(t.summary)}</div>` : ''}
       </div>
-      <div class="meta">
-        <span class="badge badge-channel">${escapeHtml(t.channel)}</span>
-        <span class="badge badge-cat">${escapeHtml(t.category)}</span>
-        <span class="badge badge-status" style="background:${statusBg(t.status)};color:${statusFg(t.status)};">${escapeHtml(t.status)}</span>
-        ${t.archived_at ? '<span class="badge badge-alert">📦 archivé</span>' : ''}
-      </div>
-      ${t.summary ? `<div class="summary">${escapeHtml(t.summary)}</div>` : ''}
     `;
+    const checkbox = item.querySelector('input[type="checkbox"]');
+    // Cocher ne doit PAS ouvrir la conversation, et ouvrir la conversation ne
+    // doit pas cocher : les deux gestes restent indépendants.
+    checkbox.onclick = (e) => e.stopPropagation();
+    checkbox.onchange = (e) => {
+      if (e.target.checked) state.listSelected.add(t.id);
+      else state.listSelected.delete(t.id);
+      updateListBulkBar();
+    };
     item.onclick = () => selectTicket(t.id);
     listEl.appendChild(item);
   });
+  updateListBulkBar();
+}
+
+// ---------- Canal : repère visuel (ajout 2026-09-17) ----------
+// Demandé par Luc : « ce serait bien que visuellement, on arrive à voir dans
+// la boîte de messagerie où il y a tous les messages, si c'est des messages
+// Instagram ou des e-mails ». Icône + couleur dédiée, au lieu du mot brut.
+function channelBadgeHtml(channel) {
+  const c = String(channel || '').toLowerCase();
+  if (c === 'email') return '<span class="badge badge-chan-email">📧 E-mail</span>';
+  if (c === 'instagram') return '<span class="badge badge-chan-instagram">📷 Instagram</span>';
+  return `<span class="badge badge-channel">${escapeHtml(channel || '—')}</span>`;
+}
+
+// ---------- Sélection multiple de la liste (ajout 2026-09-17) ----------
+function updateListBulkBar() {
+  const n = state.listSelected.size;
+  const hint = document.getElementById('listSelectedHint');
+  const archiveBtn = document.getElementById('bulkArchiveBtn');
+  const deleteBtn = document.getElementById('bulkDeleteBtn');
+  const selectAll = document.getElementById('listSelectAll');
+  if (!hint || !archiveBtn || !deleteBtn || !selectAll) return;
+  hint.textContent = n > 0 ? `${n} sélectionnée${n > 1 ? 's' : ''}` : '';
+  archiveBtn.disabled = n === 0;
+  deleteBtn.disabled = n === 0;
+  archiveBtn.textContent = state.showArchived ? '♻️ Désarchiver' : '📦 Archiver';
+  selectAll.checked = state.tickets.length > 0 && n === state.tickets.length;
+  selectAll.indeterminate = n > 0 && n < state.tickets.length;
+}
+
+function toggleSelectAllTickets(checked) {
+  state.listSelected.clear();
+  if (checked) state.tickets.forEach((t) => state.listSelected.add(t.id));
+  renderTicketList();
+}
+
+// Archivage (ou désarchivage en vue "Archivés") en lot. Réversible, donc pas
+// de confirmation — contrairement à la suppression.
+async function bulkArchiveSelection() {
+  const ids = Array.from(state.listSelected);
+  if (ids.length === 0) return;
+  const archiving = !state.showArchived;
+  const btn = document.getElementById('bulkArchiveBtn');
+  btn.disabled = true;
+  let ok = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      await api('/api/tickets/' + id, { method: 'PATCH', body: { archived: archiving } });
+      ok += 1;
+    } catch (err) {
+      failed.push(err.message);
+    }
+  }
+  if (state.selectedTicket && ids.includes(state.selectedTicket.id)) {
+    state.selectedTicket = null;
+    document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+  }
+  state.listSelected.clear();
+  await loadTickets();
+  const verbe = archiving ? 'archivée' : 'désarchivée';
+  toast(
+    failed.length === 0
+      ? `${ok} conversation${ok > 1 ? 's' : ''} ${verbe}${ok > 1 ? 's' : ''}.`
+      : `${ok} ${verbe}${ok > 1 ? 's' : ''}, ${failed.length} en erreur : ${failed[0]}`,
+    failed.length > 0
+  );
+}
+
+// Suppression en lot : définitive (le ticket ET ses messages), donc double
+// garde-fou — on demande de taper SUPPRIMER, comme pour un ticket seul.
+async function bulkDeleteSelection() {
+  const ids = Array.from(state.listSelected);
+  if (ids.length === 0) return;
+  const typed = window.prompt(
+    `Suppression définitive et IRRÉVERSIBLE de ${ids.length} conversation${ids.length > 1 ? 's' : ''} (messages compris).\nTape SUPPRIMER pour confirmer :`
+  );
+  if (typed !== 'SUPPRIMER') return;
+  const btn = document.getElementById('bulkDeleteBtn');
+  btn.disabled = true;
+  let ok = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      await api('/api/tickets/' + id, { method: 'DELETE' });
+      ok += 1;
+    } catch (err) {
+      failed.push(err.message);
+    }
+  }
+  if (state.selectedTicket && ids.includes(state.selectedTicket.id)) {
+    state.selectedTicket = null;
+    document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+  }
+  state.listSelected.clear();
+  await loadTickets();
+  toast(
+    failed.length === 0
+      ? `${ok} conversation${ok > 1 ? 's' : ''} supprimée${ok > 1 ? 's' : ''}.`
+      : `${ok} supprimée${ok > 1 ? 's' : ''}, ${failed.length} en erreur : ${failed[0]}`,
+    failed.length > 0
+  );
 }
 
 // ---------- Détail d'un ticket ----------
@@ -758,7 +903,7 @@ async function renderDetail() {
           <div class="sub">
             ${t.contact_handle ? '@' + escapeHtml(t.contact_handle) + ' · ' : ''}
             ${t.contact_email ? escapeHtml(t.contact_email) + ' · ' : ''}
-            canal ${escapeHtml(t.channel)}
+            ${channelBadgeHtml(t.channel)}
             ${t.archived_at ? ' · <span class="badge badge-alert">📦 archivé</span>' : ''}
           </div>
         </div>
@@ -1347,6 +1492,11 @@ function renderThread() {
   // brouillon vide n'a de toute façon rien à valider ; on ne perd donc
   // aucune action réelle en le masquant.
   const msgs = sorted
+    // Ajout 2026-09-17 : un brouillon mis à la corbeille ('rejected' SANS
+    // erreur d'envoi) n'apparaît plus dans le fil. Un envoi qui a échoué est
+    // lui aussi en 'rejected', mais porte une erreur : il reste affiché,
+    // sinon on perdrait de vue un message qui n'est jamais parti.
+    .filter((m) => !(m.direction === 'outbound' && m.status === 'rejected' && !m.error))
     .map((m) => ({ m, cleanBody: normalizeBodyForDisplay(m.body, (m.channel || (state.selectedTicket && state.selectedTicket.channel)) === 'email'), attachments: Array.isArray(m.attachments) ? m.attachments : [] }))
     .filter(({ cleanBody, attachments }) => cleanBody || attachments.length > 0);
 
@@ -1373,9 +1523,12 @@ function renderThread() {
       // Correctif 2026-09-17 : « Envoyer » sur un brouillon valide ET envoie en
       // un seul clic (avant, il fallait « Valider » puis « Envoyer »).
       // « Valider seulement » reste possible pour mettre de côté sans envoyer.
-      actions = `<div class="actions"><button class="btn btn-primary" data-action="send-draft" data-id="${m.id}">Envoyer</button> <button class="btn" data-action="validate" data-id="${m.id}">Valider seulement</button></div>`;
+      // Ajout 2026-09-17 : « 🗑 Supprimer » met le brouillon à la corbeille
+      // (status 'rejected') — il disparaît du fil et de la file de validation,
+      // mais reste en base. Pas de confirmation : un brouillon se refait.
+      actions = `<div class="actions"><button class="btn btn-primary" data-action="send-draft" data-id="${m.id}">Envoyer</button> <button class="btn" data-action="validate" data-id="${m.id}">Valider seulement</button> <button class="btn btn-danger" data-action="delete-draft" data-id="${m.id}" title="Supprimer ce brouillon">🗑 Supprimer</button></div>`;
     } else if (m.direction === 'outbound' && m.status === 'validated') {
-      actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button></div>`;
+      actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button> <button class="btn btn-danger" data-action="delete-draft" data-id="${m.id}" title="Supprimer ce brouillon">🗑 Supprimer</button></div>`;
     }
 
     const attachmentsHtml = attachments.length === 0 ? '' : `<div class="attachments">${attachments.map((a) => {
@@ -1437,6 +1590,31 @@ function renderThread() {
   threadEl.querySelectorAll('[data-action="send-draft"]').forEach((btn) => {
     btn.onclick = () => sendDraftNow(btn.dataset.id, btn);
   });
+  threadEl.querySelectorAll('[data-action="delete-draft"]').forEach((btn) => {
+    btn.onclick = () => deleteDraft(btn.dataset.id, btn);
+  });
+}
+
+// ---------- Suppression d'un brouillon (ajout 2026-09-17) ----------
+// Demandé par Luc : pouvoir jeter un brouillon rédigé par Alice / Louise.
+// Le message passe en 'rejected' : il sort du fil et de la file de
+// validation, mais la ligne reste en base (trace de ce qui avait été
+// proposé). Rien n'est envoyé au client, évidemment.
+async function deleteDraft(messageId, btn, ticketId) {
+  const tid = ticketId || (state.selectedTicket && state.selectedTicket.id);
+  if (!tid) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Suppression…'; }
+  try {
+    await api('/api/tickets/' + tid + '/messages/' + messageId, { method: 'DELETE' });
+    if (state.selectedTicket && state.selectedTicket.id === tid) {
+      state.messages = state.messages.filter((m) => m.id !== messageId);
+      renderThread();
+    }
+    toast('Brouillon supprimé.');
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 Supprimer'; }
+    toast('Erreur : ' + err.message, true);
+  }
 }
 
 // ---------- Pièce jointe sortante (correctif 2026-09-15) ----------
@@ -1878,7 +2056,7 @@ function renderQueue() {
           <div class="qc-top">
             <div class="qc-name">${escapeHtml(name)}</div>
             <div class="qc-badges">
-              <span class="badge badge-channel">${escapeHtml(it.channel)}</span>
+              ${channelBadgeHtml(it.channel)}
               <span class="badge badge-cat">${escapeHtml(it.category)}</span>
               ${it.category === 'Influence' && it.score_total != null ? `<span class="badge badge-score">score ${escapeHtml(it.score_total)}/100${it.relationship_status ? ' · ' + escapeHtml(it.relationship_status) : ''}</span>` : ''}
               ${it.related_order_number ? `<span class="badge badge-status">cmd ${escapeHtml(it.related_order_number)}</span>` : ''}
@@ -1889,8 +2067,14 @@ function renderQueue() {
           <div class="qc-alerts">
             ${it.alerts.map((a) => { const al = alertLabel(a); return `<span class="badge badge-alert${al.bad ? ' bad' : ''}">${escapeHtml(al.text)}</span>`; }).join('')}
           </div>
+          <!-- Ajout 2026-09-17 : jeter un brouillon depuis la file, sans avoir
+               à ouvrir la conversation. -->
+          <div class="qc-actions" style="margin-top:8px;">
+            <button class="btn btn-danger" data-action="delete-draft" data-id="${it.message_id}" title="Supprimer ce brouillon">🗑 Supprimer ce brouillon</button>
+          </div>
         </div>
       `;
+      card.querySelector('[data-action="delete-draft"]').onclick = (e) => deleteQueueDraft(it, e.currentTarget);
       card.querySelector('input[type="checkbox"]').onchange = (e) => {
         if (e.target.checked) state.queue.selected.add(it.message_id);
         else state.queue.selected.delete(it.message_id);
@@ -1905,6 +2089,22 @@ function renderQueue() {
     });
   }
   updateQueueToolbar();
+}
+
+// Suppression d'un brouillon depuis la file de validation (ajout 2026-09-17).
+async function deleteQueueDraft(item, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Suppression…'; }
+  try {
+    await api('/api/tickets/' + item.ticket_id + '/messages/' + item.message_id, { method: 'DELETE' });
+    state.queue.selected.delete(item.message_id);
+    state.queue.edited.delete(item.message_id);
+    state.queue.items = state.queue.items.filter((i) => i.message_id !== item.message_id);
+    renderQueue();
+    toast('Brouillon supprimé.');
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 Supprimer ce brouillon'; }
+    toast('Erreur : ' + err.message, true);
+  }
 }
 
 function updateQueueToolbar() {
@@ -2159,6 +2359,10 @@ function initViewSwitch() {
 document.getElementById('searchInput').oninput = debounce((e) => { state.q = e.target.value; loadTickets(); }, 350);
 document.getElementById('ticketSortSelect').value = state.ticketSortOrder;
 document.getElementById('ticketSortSelect').onchange = (e) => { state.ticketSortOrder = e.target.value; loadTickets(); };
+// Barre d'actions groupées de la liste — ajout 2026-09-17.
+document.getElementById('listSelectAll').onchange = (e) => toggleSelectAllTickets(e.target.checked);
+document.getElementById('bulkArchiveBtn').onclick = bulkArchiveSelection;
+document.getElementById('bulkDeleteBtn').onclick = bulkDeleteSelection;
 document.getElementById('newTicketBtn').onclick = openNewTicketModal;
 document.getElementById('ntCancel').onclick = closeNewTicketModal;
 document.getElementById('ntCreate').onclick = createTicketFromModal;
