@@ -590,6 +590,25 @@
     }
   }
 
+  // ---------- Prénom d'envoi (correctif 2026-09-17) ----------
+  // Les messages partent au nom de l'assistante (Alice / Louise) : index.html
+  // pré-remplit « Envoyer en tant que » avec defaultSenderName(), qui lit ce
+  // prénom de signature (réglable dans « ✨ Assistante IA »).
+  function rememberSignature(name, tenant) {
+    if (!name || !String(name).trim()) return;
+    window.msavSignatureNames = window.msavSignatureNames || {};
+    window.msavSignatureNames[tenant || state.tenant] = String(name).trim();
+  }
+  async function loadSignature() {
+    const tenant = state.tenant;
+    if (window.msavSignatureNames && window.msavSignatureNames[tenant]) return;
+    try {
+      const data = await api('/api/ai/settings');
+      if (data && data.settings) rememberSignature(data.settings.signature_name, tenant);
+    } catch (e) { /* repli sur Alice / Louise dans index.html */ }
+  }
+  loadSignature();
+
   // ---------- Réglages IA (modale) ----------
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop';
@@ -657,6 +676,7 @@
     try {
       const data = await api('/api/ai/settings');
       const st = data.settings || {};
+      rememberSignature(st.signature_name);
       Object.entries(FIELD_IDS).forEach(([field, id]) => { document.getElementById(id).value = st[field] || ''; });
       document.getElementById('aiSetEnabled').checked = st.enabled !== false;
       document.getElementById('aiSetAutoDraft').checked = st.auto_draft !== false;
@@ -682,6 +702,7 @@
     if (quota !== '') body.gifting_quota_per_colorway = parseInt(quota, 10);
     try {
       await api('/api/ai/settings', { method: 'PUT', body });
+      rememberSignature(body.signature_name);
       toast('Réglages IA enregistrés — appliqués dès le prochain brouillon.');
       modal.classList.remove('open');
     } catch (err) {
@@ -736,6 +757,7 @@
   renderDetail = async function () {
     await originalRenderDetail.apply(this, arguments);
     renderAiBox();
+    loadSignature();
   };
 
   const originalRenderThread = renderThread;
