@@ -33,6 +33,13 @@ const EDITABLE_FIELDS = [
   'age',
   'city',
   'country',
+  // Ajout 2026-09-18 : coordonnées d'envoi et pointure. Remplies
+  // automatiquement à partir des conversations (lib/ai/profile-fill.js),
+  // corrigeables à la main ici.
+  'address',
+  'postal_code',
+  'phone',
+  'shoe_size',
   'follower_count',
   'engagement_observed',
   'profile_picture_url',

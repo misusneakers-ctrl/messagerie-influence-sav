@@ -7,6 +7,8 @@
 // fonction d'envoi. Phase B du connecteur direct (lecture seule d'abord),
 // voir PLAN-ARCHITECTURE-Messagerie-Influence-SAV.md section 3 et 5.
 const { withTenantHandler, sendJson } = require('../../lib/handler');
+const { autoLinkOrder } = require('../../lib/order-link');
+const { linkEmailAndMerge } = require('../../lib/conversation-merge');
 const { withTenant } = require('../../lib/db');
 const { decrypt } = require('../../lib/crypto');
 const { logAudit } = require('../../lib/audit');
@@ -105,15 +107,54 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     conversations_scanned: conversations.length,
     tickets_created: 0,
     messages_created: 0,
+    conversations_skipped: 0,
+    remaining: 0,
     errors: [],
   };
+
+  // Correctif 2026-09-18 (la synchro dépassait les 300 s de Vercel et
+  // renvoyait 504 : « impossible d'actualiser »).
+  //
+  // Cause : on redemandait à Meta les messages des ~170 conversations, puis on
+  // écrivait en base conversation par conversation, avec une requête par
+  // message pour savoir s'il était déjà connu. Des milliers d'allers-retours.
+  //
+  // Première parade : on retient la date de dernière activité de chaque
+  // conversation (`ig_conversation_updated_at`). Une conversation qui n'a pas
+  // bougé depuis le dernier passage est ignorée — sans même appeler Meta.
+  // Après le premier passage, une actualisation ne touche donc que ce qui a
+  // réellement changé.
+  const dejaVues = await withTenant(tenant.id, async (client) => {
+    const { rows } = await client.query(
+      `SELECT external_thread_id, ig_conversation_updated_at
+         FROM tickets
+        WHERE tenant_id = $1 AND channel = 'instagram' AND ig_conversation_updated_at IS NOT NULL`,
+      [tenant.id]
+    );
+    const m = new Map();
+    for (const r of rows) m.set(r.external_thread_id, new Date(r.ig_conversation_updated_at).getTime());
+    return m;
+  });
+
+  function aBouge(conversation) {
+    const maj = conversation.updated_time ? new Date(conversation.updated_time).getTime() : null;
+    if (!maj) return true; // pas d'information : on regarde, par prudence
+    const participants = (conversation.participants && conversation.participants.data) || [];
+    const contact = participants.find((x) => x.username !== businessUsername);
+    if (!contact) return true;
+    const connu = dejaVues.get(contact.id);
+    return !connu || maj > connu;
+  }
+
+  const aTraiter = conversations.filter(aBouge);
+  summary.conversations_skipped = conversations.length - aTraiter.length;
 
   // Étape 1 : récupérer les messages de toutes les conversations en
   // parallèle (par lots de CONCURRENCY), au lieu d'un aller-retour Instagram
   // séquentiel par conversation — c'est cette étape qui dominait la durée
   // totale du sondage.
   const messagesByConversation = await mapWithConcurrency(
-    conversations,
+    aTraiter,
     CONCURRENCY,
     async (conversation) => {
       try {
@@ -135,7 +176,20 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
   // plus rapide qu'un aller-retour Instagram, donc paralléliser cette partie
   // n'aurait apporté qu'un gain marginal pour plus de complexité (risque de
   // conflits de transaction).
+  // Deuxième parade : un budget de temps. Vercel coupe à 300 s ; on s'arrête
+  // bien avant et on annonce ce qu'il reste, le front rappelle la route. Une
+  // actualisation longue devient une suite d'actualisations courtes, au lieu
+  // d'un 504 qui ne rend rien du tout.
+  const BUDGET_MS = 45000;
+  const debut = Date.now();
+  let traitees = 0;
+
   for (const { conversation, messages, error } of messagesByConversation) {
+    if (Date.now() - debut > BUDGET_MS) {
+      summary.remaining = messagesByConversation.length - traitees;
+      break;
+    }
+    traitees += 1;
     if (error) {
       summary.errors.push({ conversation_id: conversation.id, error: error.message });
       continue;
@@ -229,13 +283,20 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         // ce ticket, et on le pose à la date du DERNIER message importé
         // (pas à "now()") pour qu'il reflète le vrai moment de l'échange.
         let insertedForTicket = 0;
+        const textesEntrants = [];
         let latestMessageAt = null;
+        // Troisième parade : UNE requête pour savoir quels messages sont déjà
+        // connus, au lieu d'une par message. Sur une conversation de trente
+        // messages, c'est vingt-neuf allers-retours économisés.
+        const { rows: connus } = await client.query(
+          `SELECT external_message_id FROM ticket_messages
+            WHERE tenant_id = $1 AND external_message_id = ANY($2::text[])`,
+          [tenant.id, messages.map((m) => m.id)]
+        );
+        const dejaImportes = new Set(connus.map((r) => r.external_message_id));
+
         for (const message of messages) {
-          const { rows: existingMsgRows } = await client.query(
-            `SELECT id FROM ticket_messages WHERE tenant_id = $1 AND external_message_id = $2`,
-            [tenant.id, message.id]
-          );
-          if (existingMsgRows.length > 0) continue; // déjà importé, sondage idempotent
+          if (dejaImportes.has(message.id)) continue; // sondage idempotent
 
           const isFromBusiness = !!(
             message.from &&
@@ -273,13 +334,94 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
           );
           summary.messages_created += 1;
           insertedForTicket += 1;
+          if (direction === 'inbound' && message.message) textesEntrants.push(message.message);
           if (!latestMessageAt || new Date(messageCreatedAt) > new Date(latestMessageAt)) {
             latestMessageAt = messageCreatedAt;
           }
         }
 
+        // Date d'activité vue chez Meta : c'est elle qui permet d'ignorer
+        // cette conversation au prochain passage si rien n'a bougé.
+        if (conversation.updated_time) {
+          await client.query(
+            `UPDATE tickets SET ig_conversation_updated_at = $2 WHERE id = $1 AND tenant_id = $3`,
+            [ticket.id, conversation.updated_time, tenant.id]
+          );
+        }
+
         if (insertedForTicket > 0) {
           await client.query(`UPDATE tickets SET updated_at = $2 WHERE id = $1`, [ticket.id, latestMessageAt]);
+          // Un ticket archivé AUTOMATIQUEMENT parce qu'il était vide revient
+          // dans la boîte dès qu'un message lisible arrive. Un ticket archivé
+          // par Luc, lui, reste archivé : c'est sa décision.
+          await client.query(
+            `UPDATE tickets SET archived_at = NULL, archived_reason = NULL
+              WHERE id = $1 AND tenant_id = $2 AND archived_reason = 'vide'
+                AND EXISTS (
+                  SELECT 1 FROM ticket_messages m
+                   WHERE m.ticket_id = $1 AND m.tenant_id = $2
+                     AND (coalesce(btrim(m.body), '') <> ''
+                          OR jsonb_array_length(coalesce(m.attachments, '[]'::jsonb)) > 0)
+                )`,
+            [ticket.id, tenant.id]
+          );
+          // Ajout 2026-09-18 : si la cliente a écrit son numéro de commande,
+          // on le rattache au ticket tout de suite, après vérification chez
+          // Shopify. Luc ouvre un ticket déjà documenté au lieu d'aller
+          // chercher la commande à la main.
+          try {
+            const lien = await autoLinkOrder(client, tenant, ticket, textesEntrants.join('\n'));
+            if (lien) {
+              summary.orders_linked = (summary.orders_linked || 0) + 1;
+              // Ajout 2026-09-18 : la commande donne l'e-mail de la cliente,
+              // l'e-mail donne ses éventuelles conversations Gmail — qu'on
+              // réunit ici dans une seule timeline.
+              const fusion = await linkEmailAndMerge(client, tenant, { ...ticket, related_order_number: lien.order_number });
+              if (fusion && fusion.merged.length) {
+                summary.conversations_merged = (summary.conversations_merged || 0) + fusion.merged.length;
+              }
+            }
+          } catch (err) {
+            console.error('[commande] rattachement automatique impossible :', String(err.message || err).slice(0, 200));
+          }
+
+          // Ajout 2026-09-18, demandé par Luc : « si on n'a pas la possibilité
+          // de voir les messages, autant qu'ils soient archivés directement ».
+          // Un DM sans texte ni pièce jointe — réaction, partage, réponse à
+          // une story — n'a rien à traiter et encombrait la boîte (cas
+          // @ameliepenhoat). On l'archive, sans rien supprimer : il
+          // réapparaîtra au premier message lisible, puisque la synchro
+          // désarchive un ticket qui reçoit du contenu.
+          //
+          // Prudences : jamais un ticket déjà travaillé (analysé, catégorisé
+          // à la main, commande liée, réponse envoyée ou brouillon en cours).
+          const { rows: hygiene } = await client.query(
+            `UPDATE tickets t SET archived_at = now(), archived_reason = 'vide', updated_at = now()
+              WHERE t.id = $1 AND t.tenant_id = $2
+                AND t.archived_at IS NULL
+                AND t.ai_analyzed_at IS NULL
+                AND t.related_order_number IS NULL
+                AND t.influence_relation_id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM ticket_messages m
+                   WHERE m.ticket_id = t.id AND m.tenant_id = t.tenant_id
+                     AND (m.direction = 'outbound'
+                          OR coalesce(btrim(m.body), '') <> ''
+                          OR jsonb_array_length(coalesce(m.attachments, '[]'::jsonb)) > 0)
+                )
+              RETURNING t.id`,
+            [ticket.id, tenant.id]
+          );
+          if (hygiene[0]) {
+            summary.archived_empty = (summary.archived_empty || 0) + 1;
+            await logAudit(client, tenant.id, {
+              actor: 'systeme',
+              action: 'ticket_archived_empty',
+              entityType: 'ticket',
+              entityId: ticket.id,
+              details: { raison: 'aucun message lisible (réaction, partage ou réponse à une story)' },
+            });
+          }
         }
       });
     } catch (err) {

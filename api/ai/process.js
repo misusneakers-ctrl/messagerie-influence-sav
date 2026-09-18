@@ -5,9 +5,9 @@
 //
 // Corps JSON : { mode: 'auto' | 'classify' }
 // - 'auto'     : conversations dont le dernier message est un message ENTRANT
-//                de moins de 24 h pas encore analysé → analyse + brouillon
-//                (Influence uniquement). Appelé automatiquement après
-//                « Actualiser Instagram ».
+//                des 7 derniers jours pas encore analysé → analyse + brouillon,
+//                TOUTES catégories depuis le 18/09 (SAV compris), appelé
+//                automatiquement par « Actualiser ».
 // - 'classify' : conversations jamais analysées (tout l'historique) →
 //                analyse et reclassement uniquement, JAMAIS de brouillon.
 //

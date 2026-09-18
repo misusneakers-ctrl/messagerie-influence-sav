@@ -5,6 +5,7 @@
 //                          déjà (modèle "agence" : la personne n'est jamais dupliquée)
 const { withTenantHandler, sendJson } = require('../../lib/handler');
 const { withTenant, withoutTenant } = require('../../lib/db');
+const { recordsForRelations } = require('../../lib/campaigns');
 const { logAudit } = require('../../lib/audit');
 
 function normalizeHandle(handle) {
@@ -59,9 +60,21 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     });
     const accountsById = Object.fromEntries(accounts.map((a) => [a.id, a]));
 
+    // Ajout 2026-09-18 : bilan campagnes (paires offertes / publications) joint
+    // à chaque profil. Une seule requête agrégée pour toute la liste — c'est
+    // ce chiffre qui sert à écarter celles qui ne publient jamais.
+    let records = {};
+    try {
+      records = await withTenant(tenant.id, (client) => (
+        recordsForRelations(client, tenant.id, relations.map((r) => r.id))
+      ));
+    } catch (err) {
+      console.error('[campagnes] bilan indisponible :', String(err.message || err).slice(0, 200));
+    }
+
     const profiles = relations
       .filter((r) => accountsById[r.account_id])
-      .map((r) => ({ account: accountsById[r.account_id], relation: r }));
+      .map((r) => ({ account: accountsById[r.account_id], relation: r, record: records[r.id] || null }));
 
     sendJson(res, 200, { profiles });
     return;

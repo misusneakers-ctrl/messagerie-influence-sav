@@ -224,6 +224,10 @@
   et les blancs de mise en forme du template redeviennent invisibles. */
   .msg{width:fit-content;max-width:75%;min-width:36px;padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.4;word-break:break-word;margin-bottom:6px;}
   .msg-body{white-space:pre-wrap;}
+  /* Correction d'un brouillon, au pied de la bulle (ajout 2026-09-18). */
+  .fix-box{margin-top:8px;padding:10px;border-radius:10px;background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.22);}
+  .fix-box textarea{width:100%;box-sizing:border-box;}
+  .fix-rule{margin-top:10px;padding-top:10px;border-top:1px dashed rgba(124,58,237,.3);}
   .msg.inbound{align-self:flex-start;background:#f1f2f4;border-bottom-left-radius:2px;}
   .msg.outbound{align-self:flex-end;background:var(--accent-bg);border-bottom-right-radius:2px;}
   /* Regroupement "façon messagerie" : des messages consécutifs du même sens
@@ -566,6 +570,7 @@
         <div class="view-switch" id="viewSwitch">
           <button data-view="inbox" class="active">📥 Boîte</button>
           <button data-view="queue">✅ File de validation</button>
+          <button data-view="campaigns">🎬 Campagnes</button>
         </div>
         <button class="rail-item" id="archivedToggleBtn">📦 Archivés</button>
       </div>
@@ -595,7 +600,7 @@
             <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
           </div>
           <div class="topbar-actions">
-            <button class="btn" id="syncInstagramBtn" title="Actualiser : Instagram et e-mails">🔄</button>
+            <button class="btn" id="syncInstagramBtn" title="Actualiser : Instagram, e-mails, puis préparation des réponses par Alice">🔄</button>
             <button class="btn btn-primary" id="newTicketBtn">+ Nouveau</button>
             <div class="menu-wrap">
               <button class="btn" id="moreMenuBtn" title="Plus d'actions">⋯</button>
@@ -662,6 +667,21 @@
   </div>
   <div id="queueSummary"></div>
   <div class="queue-list" id="queueList"><div class="empty">Chargement…</div></div>
+</div>
+
+<!-- Ajout 2026-09-18, demandé par Luc : « un tag de participation à une
+     campagne, et voir si elle a publié… surtout pour l'exclusion des filles
+     qui ne posteraient pas ». Le comptage est manuel : c'est lui qui voit la
+     story et qui clique. -->
+<div class="queue-view" id="campaignsView" style="display:none;">
+  <div class="queue-toolbar">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <select id="campaignSelect" style="min-width:220px;"></select>
+      <button class="btn" id="campaignNewBtn">+ Nouvelle campagne</button>
+    </div>
+    <span class="hint" id="campaignSummary" style="font-size:12.5px;color:var(--muted);"></span>
+  </div>
+  <div class="queue-list" id="campaignList"><div class="empty">Chargement…</div></div>
 </div>
   </div><!-- /#mainArea -->
 </div><!-- /#app -->
@@ -738,6 +758,21 @@
     <input type="text" id="epEmail" placeholder="Non fourni par Instagram — à remplir à la main" />
     <label>Âge</label>
     <input type="text" id="epAge" placeholder="Non fourni par Instagram — à remplir à la main" />
+    <!-- Ajout 2026-09-18, demandé par Luc : les coordonnées d'envoi et la
+         pointure se remplissent toutes seules dès que la personne les donne
+         dans la conversation (lib/ai/profile-fill.js) ; elles restent
+         corrigeables ici. -->
+    <label>Pointure</label>
+    <input type="text" id="epShoeSize" placeholder="Ex. 37 — rempli automatiquement depuis la conversation" />
+    <label>Adresse</label>
+    <input type="text" id="epAddress" placeholder="Ex. 215 rue du Condor — rempli automatiquement" />
+    <label>Code postal et ville</label>
+    <div style="display:flex;gap:6px;">
+      <input type="text" id="epPostalCode" placeholder="26500" style="max-width:120px;" />
+      <input type="text" id="epCity" placeholder="Bourg-lès-Valence" />
+    </div>
+    <label>Téléphone</label>
+    <input type="text" id="epPhone" placeholder="Ex. 06 47 76 82 83 — rempli automatiquement" />
     <label>Lien vers une story sauvegardée (capture, repost…)</label>
     <input type="text" id="epSavedStoryUrl" placeholder="Non accessible via l'API — à coller à la main" />
     <label>Tags fréquents (séparés par des virgules)</label>
@@ -801,7 +836,7 @@ date, lien). Contenu généré dynamiquement par openProfileDetailModal(). -->
 <script>
 const state = {
   tenant: localStorage.getItem('msav_tenant') || 'bbp',
-  view: 'inbox', // 'inbox' | 'queue'
+  view: 'inbox', // 'inbox' | 'queue' | 'campaigns'
   category: '',
   status: '',
   q: '',
@@ -810,6 +845,8 @@ const state = {
   selectedTicket: null,
   messages: [],
   linkedProfile: null,
+  campaigns: [],      // campagnes de la marque (ajout 2026-09-18)
+  campaignId: null,   // campagne affichée dans la vue Campagnes
   pendingAttachment: null, // {type:'image'|'video'|'file', url, filename} en attente d'envoi — correctif 2026-09-15
   threadSortOrder: 'asc', // 'asc' (plus anciens en haut, défaut) | 'desc' (plus récents en haut) — correctif 2026-09-15
   ticketSortOrder: 'desc', // 'desc' (plus récent d'abord, défaut) | 'asc' — tri de la LISTE des tickets, correctif 2026-09-15
@@ -1319,8 +1356,12 @@ function renderInfluenceBox() {
           <div class="profile-card-stats">
             ${acc.email ? `<span>✉️ ${escapeHtml(acc.email)}</span>` : ''}
             ${acc.age ? `<span>🎂 ${escapeHtml(String(acc.age))} ans</span>` : ''}
+            ${acc.shoe_size ? `<span>👟 pointure ${escapeHtml(String(acc.shoe_size))}</span>` : ''}
+            ${recordBadge(state.linkedProfile.record)}
+            ${acc.phone ? `<span>📞 ${escapeHtml(acc.phone)}</span>` : ''}
             ${acc.saved_story_url ? `<a href="${escapeHtml(acc.saved_story_url)}" target="_blank" rel="noopener">📸 story sauvegardée ↗</a>` : ''}
           </div>
+          ${(acc.address || acc.postal_code || acc.city) ? `<div class="profile-card-stats"><span>📦 ${escapeHtml([acc.address, [acc.postal_code, acc.city].filter(Boolean).join(' '), acc.country].filter(Boolean).join(', '))}</span></div>` : ''}
           ${tags.length > 0 ? `<div class="profile-card-tags">${tags.map((tg) => `<span class="badge badge-cat">#${escapeHtml(tg)}</span>`).join('')}</div>` : ''}
           ${mentions.length > 0 ? `<div class="profile-card-tags">${mentions.map((m) => `<span class="badge badge-alert">@${escapeHtml(m)}</span>`).join('')}</div>` : ''}
           ${acc.instagram_synced_at ? `<div style="font-size:11px;color:var(--muted);">Synchronisé le ${fmtDate(acc.instagram_synced_at)}</div>` : ''}
@@ -1328,6 +1369,7 @@ function renderInfluenceBox() {
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <button class="btn" id="editProfileBtn">✎ Éditer</button>
+          <button class="btn" id="addToCampaignBtn" title="Ajouter à une campagne pour suivre ses publications">🎬 + Campagne</button>
           <button class="btn" id="scoreProfileBtn">📊 Noter</button>
           <button class="btn" id="profileDetailBtn">📋 Fiche complète</button>
           ${acc.instagram_handle ? '<button class="btn" id="syncProfileBtn">🔄 Synchroniser</button>' : ''}
@@ -1337,6 +1379,7 @@ function renderInfluenceBox() {
     `;
     document.getElementById('unlinkProfileBtn').onclick = () => patchTicket({ influence_relation_id: null });
     document.getElementById('editProfileBtn').onclick = () => openEditProfileModal(acc);
+    document.getElementById('addToCampaignBtn').onclick = addCurrentToCampaign;
     document.getElementById('scoreProfileBtn').onclick = () => openScoreModal(rel);
     document.getElementById('profileDetailBtn').onclick = () => openProfileDetailModal(acc, rel);
     const syncBtn = document.getElementById('syncProfileBtn');
@@ -1528,6 +1571,11 @@ function openEditProfileModal(acc) {
   document.getElementById('epEngagement').value = acc.engagement_observed ?? '';
   document.getElementById('epEmail').value = acc.email || '';
   document.getElementById('epAge').value = acc.age ?? '';
+  document.getElementById('epShoeSize').value = acc.shoe_size || '';
+  document.getElementById('epAddress').value = acc.address || '';
+  document.getElementById('epPostalCode').value = acc.postal_code || '';
+  document.getElementById('epCity').value = acc.city || '';
+  document.getElementById('epPhone').value = acc.phone || '';
   document.getElementById('epSavedStoryUrl').value = acc.saved_story_url || '';
   document.getElementById('epTags').value = (Array.isArray(acc.frequent_tags) ? acc.frequent_tags : []).join(', ');
   document.getElementById('editProfileModal').dataset.accountId = acc.id;
@@ -1549,6 +1597,11 @@ async function saveProfileEdits() {
     engagement_observed: engagementRaw ? parseFloat(engagementRaw) : null,
     email: document.getElementById('epEmail').value.trim() || null,
     age: ageRaw ? parseInt(ageRaw, 10) : null,
+    shoe_size: document.getElementById('epShoeSize').value.trim() || null,
+    address: document.getElementById('epAddress').value.trim() || null,
+    postal_code: document.getElementById('epPostalCode').value.trim() || null,
+    city: document.getElementById('epCity').value.trim() || null,
+    phone: document.getElementById('epPhone').value.trim() || null,
     saved_story_url: document.getElementById('epSavedStoryUrl').value.trim() || null,
     frequent_tags: tagsRaw ? tagsRaw.split(',').map((s) => s.trim()).filter(Boolean) : [],
   };
@@ -1620,7 +1673,8 @@ async function searchProfilesForTicket(q) {
       const row = document.createElement('div');
       row.className = 'influence-result';
       row.innerHTML = `
-        <span>${escapeHtml(p.account.display_name)}${p.account.instagram_handle ? ' · @' + escapeHtml(p.account.instagram_handle) : ''}</span>
+        <span>${escapeHtml(p.account.display_name)}${p.account.instagram_handle ? ' · @' + escapeHtml(p.account.instagram_handle) : ''}
+          ${recordBadge(p.record)}</span>
         <button class="btn" style="padding:3px 9px;font-size:11.5px;">Lier</button>
       `;
       row.querySelector('button').onclick = () => patchTicket({ influence_relation_id: p.relation.id }).then(() => {
@@ -1782,10 +1836,33 @@ function renderThread() {
     .map((m) => ({ m, cleanBody: normalizeBodyForDisplay(m.body, (m.channel || (state.selectedTicket && state.selectedTicket.channel)) === 'email'), attachments: Array.isArray(m.attachments) ? m.attachments : [] }))
     .filter(({ cleanBody, attachments }) => cleanBody || attachments.length > 0);
 
+  // Correctif 2026-09-18 : quand TOUS les messages ont été masqués par le
+  // filtre ci-dessus, le fil restait entièrement blanc, sans un mot
+  // d'explication — l'état « Aucun message » ne se déclenche pas puisque des
+  // messages existent bel et bien. Luc est tombé dessus sur @ameliepenhoat :
+  // un DM sans texte ni pièce jointe, et un écran vide impossible à
+  // interpréter. On explique désormais ce qu'on a reçu.
+  if (msgs.length === 0) {
+    const masques = sorted.length;
+    const brouillonsJetes = sorted.filter((m) => m.direction === 'outbound' && m.status === 'rejected' && !m.error).length;
+    const vides = masques - brouillonsJetes;
+    threadEl.innerHTML = `<div class="empty" style="text-align:left;line-height:1.6;">
+      ${vides > 0 ? `Cette conversation ne contient ${vides === 1 ? 'qu\'un message sans texte' : 'que ' + vides + ' messages sans texte'} ni pièce jointe.<br>
+        C'est le cas des réactions, des partages et des réponses à une story : Instagram ne nous transmet pas leur contenu.
+        Rien à traiter tant que la personne n'écrit pas.` : ''}
+      ${brouillonsJetes > 0 ? `<br>${brouillonsJetes} brouillon(s) mis à la corbeille, masqué(s) ici.` : ''}
+    </div>`;
+    return;
+  }
+
   // Ajout 2026-09-17 (canal e-mail) : badge du canal sur chaque message quand
   // la conversation mêle Instagram et e-mail (fusion), et objet des e-mails.
   const threadChannels = new Set(state.messages.map((x) => x.channel || (state.selectedTicket && state.selectedTicket.channel)));
+  // `mixedChannels` ne sert plus à décider d'afficher le canal (c'est
+  // désormais systématique) mais reste utile : voir d'un coup d'œil qu'une
+  // conversation est le fruit d'une fusion.
   const mixedChannels = threadChannels.size > 1;
+  void mixedChannels;
   let lastSubjectShown = null;
 
   msgs.forEach(({ m, cleanBody, attachments }, idx) => {
@@ -1808,7 +1885,14 @@ function renderThread() {
       // Ajout 2026-09-17 : « 🗑 Supprimer » met le brouillon à la corbeille
       // (status 'rejected') — il disparaît du fil et de la file de validation,
       // mais reste en base. Pas de confirmation : un brouillon se refait.
-      actions = `<div class="actions"><button class="btn btn-primary" data-action="send-draft" data-id="${m.id}">Envoyer</button> <button class="btn" data-action="validate" data-id="${m.id}">Valider seulement</button> <button class="btn btn-danger" data-action="delete-draft" data-id="${m.id}" title="Supprimer ce brouillon">🗑 Supprimer</button></div>`;
+      // Ajout 2026-09-18, demandé par Luc : « quand j'ai envie de donner un
+      // peu d'instructions supplémentaires aux réponses d'Alice, où est-ce
+      // que je le fais ? » — ici, au pied du brouillon qu'il est en train de
+      // lire, plutôt que dans un écran de réglages qu'il faut aller chercher.
+      const corriger = m.ai_generated
+        ? ` <button class="btn" data-action="fix-draft" data-id="${m.id}" title="Dire à Alice ce qui manque et refaire ce brouillon">✎ Corriger</button>` : '';
+      actions = `<div class="actions"><button class="btn btn-primary" data-action="send-draft" data-id="${m.id}">Envoyer</button> <button class="btn" data-action="validate" data-id="${m.id}">Valider seulement</button>${corriger} <button class="btn btn-danger" data-action="delete-draft" data-id="${m.id}" title="Supprimer ce brouillon">🗑 Supprimer</button></div>
+      <div class="fix-box" id="fix-${m.id}" hidden></div>`;
     } else if (m.direction === 'outbound' && m.status === 'validated') {
       actions = `<div class="actions"><button class="btn btn-primary" data-action="send" data-id="${m.id}">Envoyer</button> <button class="btn btn-danger" data-action="delete-draft" data-id="${m.id}" title="Supprimer ce brouillon">🗑 Supprimer</button></div>`;
     }
@@ -1837,9 +1921,12 @@ function renderThread() {
     // (created_time), donc le repli sur created_at reste correct dans ce cas.
     const displayDate = m.sent_at || m.created_at;
     const msgChannel = m.channel || (state.selectedTicket && state.selectedTicket.channel);
-    const channelTagHtml = mixedChannels
-      ? `<span class="badge badge-channel">${msgChannel === 'email' ? '📧 e-mail' : '📷 Instagram'}</span>`
-      : '';
+    // Changement 2026-09-18, demandé par Luc : le canal est affiché sur
+    // CHAQUE bulle, et plus seulement quand la conversation en mêle
+    // plusieurs. Depuis que les conversations Instagram et Gmail fusionnent
+    // automatiquement, savoir par où un message est arrivé n'est plus un
+    // détail : la réponse ne part pas au même endroit.
+    const channelTagHtml = `<span class="badge badge-channel">${CANAUX[msgChannel] || CANAUX.instagram}</span>`;
     const subject = msgChannel === 'email' && m.email_meta && m.email_meta.subject ? m.email_meta.subject : null;
     const subjectHtml = subject && subject.replace(/^(re|tr|fwd?)\s*:\s*/i, '') !== (lastSubjectShown || '').replace(/^(re|tr|fwd?)\s*:\s*/i, '')
       ? `<div class="meta" style="font-weight:600;">Objet : ${escapeHtml(subject)}</div>` : '';
@@ -1875,6 +1962,9 @@ function renderThread() {
   });
   threadEl.querySelectorAll('[data-action="send-draft"]').forEach((btn) => {
     btn.onclick = () => sendDraftNow(btn.dataset.id, btn);
+  });
+  threadEl.querySelectorAll('[data-action="fix-draft"]').forEach((btn) => {
+    btn.onclick = () => ouvrirCorrection(btn.dataset.id);
   });
   threadEl.querySelectorAll('[data-action="delete-draft"]').forEach((btn) => {
     btn.onclick = () => deleteDraft(btn.dataset.id, btn);
@@ -2346,6 +2436,7 @@ function renderQueue() {
               <span class="badge badge-cat">${escapeHtml(it.category)}</span>
               ${it.category === 'Influence' && it.score_total != null ? `<span class="badge badge-score">score ${escapeHtml(it.score_total)}/100${it.relationship_status ? ' · ' + escapeHtml(it.relationship_status) : ''}</span>` : ''}
               ${it.related_order_number ? `<span class="badge badge-status">cmd ${escapeHtml(it.related_order_number)}</span>` : ''}
+              ${fenetreBadge(it)}
             </div>
           </div>
           ${it.last_inbound_body ? `<div class="qc-context">Dernier message reçu : "${escapeHtml(it.last_inbound_body)}"</div>` : ''}
@@ -2357,10 +2448,16 @@ function renderQueue() {
                à ouvrir la conversation. -->
           <div class="qc-actions" style="margin-top:8px;">
             <button class="btn btn-danger" data-action="delete-draft" data-id="${it.message_id}" title="Supprimer ce brouillon">🗑 Supprimer ce brouillon</button>
+            <!-- Ajout 2026-09-18, demandé par Luc : « parfois Alice va penser
+                 qu'il faut rédiger un message alors qu'il n'y a pas lieu de
+                 répondre ». Un clic : le brouillon est jeté ET la
+                 conversation classée. -->
+            <button class="btn" data-action="archive-ticket" data-id="${it.message_id}" title="Jeter le brouillon et classer la conversation">📦 Rien à répondre, archiver</button>
           </div>
         </div>
       `;
       card.querySelector('[data-action="delete-draft"]').onclick = (e) => deleteQueueDraft(it, e.currentTarget);
+      card.querySelector('[data-action="archive-ticket"]').onclick = (e) => archiverDepuisFile(it, e.currentTarget);
       card.querySelector('input[type="checkbox"]').onchange = (e) => {
         if (e.target.checked) state.queue.selected.add(it.message_id);
         else state.queue.selected.delete(it.message_id);
@@ -2492,13 +2589,55 @@ async function syncInstagram() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
   try {
-    const data = await api('/api/tickets/sync-instagram', { method: 'POST', signal: controller.signal });
+    // Refonte 2026-09-18, demandée par Luc : « avec juste Actualiser, qu'Alice
+    // prépare tous les brouillons d'un coup et les passe sur la liste à
+    // traiter ». Un seul bouton enchaîne donc : Instagram → e-mails →
+    // préparation des réponses. Rien n'est envoyé : ce sont des brouillons.
+    // La synchro Instagram s'arrête d'elle-même au bout de 45 s et annonce ce
+    // qu'il reste : on la rappelle, plutôt que d'attendre un 504 au bout de
+    // 300 s comme le 18/09 au soir.
+    let data = null;
+    let tickets = 0;
+    let messages = 0;
+    for (let tour = 0; tour < 8; tour += 1) {
+      btn.textContent = tour ? `Instagram… (suite ${tour})` : 'Instagram…';
+      data = await api('/api/tickets/sync-instagram', { method: 'POST', signal: controller.signal });
+      tickets += data.tickets_created || 0;
+      messages += data.messages_created || 0;
+      if (!data.remaining) break;
+    }
     const parts = [];
-    if (data.tickets_created) parts.push(`${data.tickets_created} nouveau${data.tickets_created > 1 ? 'x' : ''} ticket${data.tickets_created > 1 ? 's' : ''}`);
-    if (data.messages_created) parts.push(`${data.messages_created} nouveau${data.messages_created > 1 ? 'x' : ''} message${data.messages_created > 1 ? 's' : ''}`);
+    if (tickets) parts.push(`${tickets} nouveau${tickets > 1 ? 'x' : ''} ticket${tickets > 1 ? 's' : ''}`);
+    if (messages) parts.push(`${messages} nouveau${messages > 1 ? 'x' : ''} message${messages > 1 ? 's' : ''}`);
+
+    // E-mails : l'absence de boîte connectée n'est pas une erreur.
+    btn.textContent = 'E-mails…';
+    let mails = null;
+    try {
+      mails = await api('/api/tickets/sync-email', { method: 'POST', signal: controller.signal });
+      if (mails && mails.messages_created) parts.push(`${mails.messages_created} e-mail${mails.messages_created > 1 ? 's' : ''}`);
+    } catch (err) { /* boîte non connectée ou synchro en échec : on continue */ }
+
+    // Préparation des brouillons, par lots tant qu'il en reste.
+    let drafts = 0;
+    let analysees = 0;
+    try {
+      for (let tour = 0; tour < 6; tour += 1) {
+        btn.textContent = drafts ? `Réponses… (${drafts})` : 'Réponses…';
+        const ia = await api('/api/ai/process', { method: 'POST', body: { mode: 'auto' } });
+        if (ia.disabled) break;
+        drafts += ia.drafts_created || 0;
+        analysees += ia.processed || 0;
+        if (ia.fatal || !ia.remaining) break;
+      }
+    } catch (err) { /* l'IA peut être indisponible : la synchro reste utile */ }
+    if (analysees) parts.push(`${analysees} conversation${analysees > 1 ? 's' : ''} analysée${analysees > 1 ? 's' : ''}`);
+    if (drafts) parts.push(`${drafts} réponse${drafts > 1 ? 's' : ''} prête${drafts > 1 ? 's' : ''} à valider`);
+
     const summaryText = parts.length > 0 ? parts.join(', ') : 'rien de nouveau';
-    toast(`Instagram actualisé : ${summaryText}.`, (data.errors || []).length > 0);
-    if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
+    toast(`Actualisé : ${summaryText}.`, (data.errors || []).length > 0);
+    if (drafts) setView('queue');
+    else if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); if (state.selectedTicket) await refreshSelectedTicket(); }
   } catch (err) {
     if (err.name === 'AbortError') {
       toast('Ça prend plus de temps que prévu (plus d\'une minute) — réessaie dans un instant ; si ça persiste, préviens-moi.', true);
@@ -2596,12 +2735,14 @@ function setView(view) {
   state.view = view;
   document.getElementById('inboxView').style.display = view === 'inbox' ? 'grid' : 'none';
   document.getElementById('queueView').style.display = view === 'queue' ? 'block' : 'none';
+  document.getElementById('campaignsView').style.display = view === 'campaigns' ? 'block' : 'none';
   document.getElementById('searchWrap').style.display = view === 'inbox' ? 'block' : 'none';
   document.querySelectorAll('#viewSwitch button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   if (view === 'queue') {
     resetQueueSelection();
     loadQueue();
   }
+  if (view === 'campaigns') loadCampaigns();
 }
 
 // ---------- Bascule Boîte / Archivés ----------
@@ -2635,6 +2776,307 @@ function initTenantSwitch() {
     };
   });
 }
+
+
+// ---------- File de validation : fenêtre Instagram et « rien à répondre » ----------
+// Ajout 2026-09-18. La file liste des BROUILLONS (un par message à valider),
+// pas des tickets. Luc voulait pouvoir dire « celui-là, pas de réponse » sans
+// ouvrir la conversation, et voir le temps qu'il lui reste : sur Instagram, on
+// ne peut plus répondre passé 24 h après le dernier message de la personne.
+function fenetreBadge(it) {
+  if (it.channel !== 'instagram' || !it.last_inbound_at) return '';
+  const reste = 24 * 3600 * 1000 - (Date.now() - new Date(it.last_inbound_at).getTime());
+  if (reste <= 0) return '<span class="badge badge-alert bad">⛔ fenêtre 24 h fermée</span>';
+  const heures = Math.floor(reste / 3600000);
+  const minutes = Math.floor((reste % 3600000) / 60000);
+  const texte = heures >= 1 ? `${heures} h` : `${minutes} min`;
+  const urgent = reste < 3 * 3600 * 1000;
+  return `<span class="badge ${urgent ? 'badge-alert' : 'badge-status'}" title="Temps restant pour répondre sur Instagram">⏳ ${texte}</span>`;
+}
+
+async function archiverDepuisFile(it, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳…';
+  try {
+    // Le brouillon part à la corbeille, puis la conversation est archivée.
+    await api('/api/tickets/' + it.ticket_id + '/messages/' + it.message_id, { method: 'DELETE' });
+    await api('/api/tickets/' + it.ticket_id, { method: 'PATCH', body: { archived: true } });
+    toast('Conversation archivée, brouillon jeté.');
+    await loadQueue();
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+// ---------- Corriger un brouillon d'Alice (ajout 2026-09-18) ----------
+// Luc lit une réponse, voit ce qui manque, le dit ici. Deux effets possibles :
+// refaire CE brouillon, et — s'il le veut — en tirer une consigne permanente.
+// Alice reformule la remarque en consigne propre et la lui montre AVANT tout
+// enregistrement : c'est ce qu'il a demandé. Une consigne permanente mal
+// écrite dégraderait toutes les réponses suivantes.
+function ouvrirCorrection(messageId) {
+  const box = document.getElementById('fix-' + messageId);
+  if (!box) return;
+  if (!box.hidden) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  box.innerHTML = `
+    <label style="font-size:12px;color:var(--muted);">Qu'est-ce qui manque ?</label>
+    <textarea id="fixText-${messageId}" rows="2" placeholder="Ex. tu as oublié le délai de livraison, et il fallait proposer un échange."></textarea>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:6px;">
+      <input type="checkbox" id="fixRemember-${messageId}" checked />
+      Et retenir la règle pour les prochaines réponses
+    </label>
+    <div class="actions" style="margin-top:8px;">
+      <button class="btn btn-primary" id="fixGo-${messageId}">Refaire le brouillon</button>
+      <button class="btn" id="fixCancel-${messageId}">Annuler</button>
+    </div>
+    <div id="fixRule-${messageId}"></div>`;
+  const champ = document.getElementById('fixText-' + messageId);
+  champ.focus();
+  document.getElementById('fixCancel-' + messageId).onclick = () => { box.hidden = true; box.innerHTML = ''; };
+  document.getElementById('fixGo-' + messageId).onclick = () => lancerCorrection(messageId);
+  champ.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) lancerCorrection(messageId);
+  });
+}
+
+async function lancerCorrection(messageId) {
+  const t = state.selectedTicket;
+  const remarque = (document.getElementById('fixText-' + messageId) || {}).value;
+  if (!t || !remarque || !remarque.trim()) return;
+  const retenir = (document.getElementById('fixRemember-' + messageId) || {}).checked;
+  const bouton = document.getElementById('fixGo-' + messageId);
+  bouton.disabled = true;
+  bouton.textContent = '⏳ Alice réécrit…';
+  try {
+    // 1. le brouillon est refait tout de suite, avec la remarque en consigne.
+    await api('/api/tickets/' + t.id + '/ai-draft', { method: 'POST', body: { instruction: remarque.trim() } });
+    await refreshSelectedTicket();
+    toast('Brouillon refait avec ta remarque.');
+
+    // 2. si Luc veut en faire une règle, Alice la reformule et la lui soumet.
+    if (retenir) await proposerConsigne(messageId, remarque.trim());
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+    if (bouton) { bouton.disabled = false; bouton.textContent = 'Refaire le brouillon'; }
+  }
+}
+
+async function proposerConsigne(messageId, remarque) {
+  const t = state.selectedTicket;
+  const data = await api('/api/ai/rule', { method: 'POST', body: { remarque, ticket_id: t && t.id } });
+  // Le fil vient d'être redessiné : on rouvre l'encadré pour y poser la règle.
+  const box = document.getElementById('fix-' + messageId) || document.getElementById('aiRuleFallback');
+  const zone = document.createElement('div');
+  zone.className = 'fix-rule';
+  if (data.hors_consigne) {
+    zone.innerHTML = `<div class="info" style="font-size:12.5px;">${escapeHtml(data.message)}</div>`;
+  } else {
+    zone.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">
+        ${data.reformulee ? 'Alice propose cette consigne permanente :' : 'Consigne à ajouter (Alice n\'a pas pu la reformuler) :'}
+      </div>
+      <textarea id="ruleText" rows="2">${escapeHtml(data.rule || '')}</textarea>
+      <div class="actions" style="margin-top:6px;">
+        <button class="btn btn-primary" id="ruleSave">Ajouter aux consignes</button>
+        <button class="btn" id="ruleSkip">Non merci</button>
+      </div>`;
+  }
+  if (box) { box.hidden = false; box.appendChild(zone); }
+  const save = document.getElementById('ruleSave');
+  if (save) {
+    save.onclick = async () => {
+      save.disabled = true;
+      try {
+        const res = await api('/api/ai/rule', {
+          method: 'POST',
+          body: { confirm: true, rule: document.getElementById('ruleText').value, ticket_id: t && t.id },
+        });
+        toast(res.deja_presente ? 'Cette consigne était déjà enregistrée.' : 'Consigne ajoutée — Alice l\'appliquera désormais.');
+        if (box) { box.hidden = true; box.innerHTML = ''; }
+      } catch (err) {
+        toast('Erreur : ' + err.message, true);
+        save.disabled = false;
+      }
+    };
+    document.getElementById('ruleSkip').onclick = () => { if (box) { box.hidden = true; box.innerHTML = ''; } };
+  }
+}
+
+// ---------- Campagnes et suivi de publication (ajout 2026-09-18) ----------
+// Demandé par Luc : « a reçu », puis « a publié une fois, deux fois… ou pas
+// du tout ». Le but qu'il a énoncé est l'exclusion : voir d'un coup d'œil
+// celles qui reçoivent une paire et ne publient jamais.
+// Libellés des canaux, affichés sur chaque bulle. WhatsApp et Messenger sont
+// prévus ici : les tickets porteront ce canal dès que ces boîtes seront
+// branchées, sans nouvelle modification de l'affichage.
+const CANAUX = {
+  instagram: '📷 Instagram',
+  email: '📧 Gmail',
+  messenger: '💬 Messenger',
+  whatsapp: '🟢 WhatsApp',
+};
+
+const CAMPAIGN_STATUSES = [
+  ['pressentie', 'Pressentie'],
+  ['acceptee', 'A accepté'],
+  ['a_recu', 'A reçu'],
+  ['a_publie', 'A publié'],
+  ['n_a_pas_publie', "N'a pas publié"],
+  ['exclue', 'Écartée'],
+];
+const VERDICTS = {
+  fiable: ['✅', 'publie bien'],
+  jamais_publie: ['🚫', "a reçu, n'a jamais publié"],
+  en_retard: ['⏳', 'reçu, rien publié pour l\'instant'],
+  exclue: ['⛔', 'écartée'],
+  nouvelle: ['·', 'première collaboration'],
+};
+
+function recordBadge(record) {
+  if (!record || !record.verdict) return '';
+  const [icone, libelle] = VERDICTS[record.verdict] || VERDICTS.nouvelle;
+  const chiffres = record.paires_envoyees
+    ? `${record.paires_envoyees} paire${record.paires_envoyees > 1 ? 's' : ''} · ${record.publications} publication${record.publications > 1 ? 's' : ''}`
+    : 'aucune paire offerte';
+  const alerte = record.verdict === 'jamais_publie' || record.verdict === 'exclue';
+  return `<span class="badge ${alerte ? 'badge-alert' : 'badge-cat'}" title="${escapeHtml(libelle)}">${icone} ${escapeHtml(chiffres)}</span>`;
+}
+
+async function loadCampaigns() {
+  const select = document.getElementById('campaignSelect');
+  try {
+    const data = await api('/api/campaigns');
+    state.campaigns = data.campaigns || [];
+    if (state.campaigns.length === 0) {
+      select.innerHTML = '<option value="">Aucune campagne</option>';
+      document.getElementById('campaignSummary').textContent = '';
+      document.getElementById('campaignList').innerHTML =
+        '<div class="empty">Aucune campagne. Crée-en une, puis ajoute les influenceuses depuis leur conversation.</div>';
+      return;
+    }
+    const courant = state.campaignId && state.campaigns.some((c) => c.id === state.campaignId)
+      ? state.campaignId : state.campaigns[0].id;
+    state.campaignId = courant;
+    select.innerHTML = state.campaigns.map((c) => `<option value="${escapeHtml(c.id)}"${c.id === courant ? ' selected' : ''}>${escapeHtml(c.name || 'Sans nom')} — ${c.participantes} participante(s)</option>`).join('');
+    await loadCampaignParticipants(courant);
+  } catch (err) {
+    document.getElementById('campaignList').innerHTML = `<div class="empty">Erreur : ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function loadCampaignParticipants(campaignId) {
+  const list = document.getElementById('campaignList');
+  list.innerHTML = '<div class="empty">Chargement…</div>';
+  const data = await api('/api/campaigns?id=' + encodeURIComponent(campaignId));
+  const parts = data.participants || [];
+  const camp = (state.campaigns || []).find((c) => c.id === campaignId);
+  const publie = parts.filter((p) => p.posts_count > 0).length;
+  const recus = parts.filter((p) => p.a_recu).length;
+  const muettes = parts.filter((p) => p.a_recu && p.posts_count === 0).length;
+  document.getElementById('campaignSummary').innerHTML = camp
+    ? `${parts.length} participante(s) · ${recus} ont reçu · ${publie} ont publié · <strong${muettes ? ' style="color:var(--accent);"' : ''}>${muettes} sans retour</strong>`
+    : '';
+
+  if (parts.length === 0) {
+    list.innerHTML = '<div class="empty">Personne dans cette campagne. Ajoute une influenceuse depuis sa conversation, bouton « + Campagne » sur sa fiche.</div>';
+    return;
+  }
+  list.innerHTML = parts.map((p) => `
+    <div class="queue-card" data-participant="${escapeHtml(p.id)}">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <strong>${escapeHtml(p.display_name || '—')}</strong>
+        ${p.instagram_handle ? `<span style="color:var(--muted);">@${escapeHtml(p.instagram_handle)}</span>` : ''}
+        ${p.en_retard ? '<span class="badge badge-alert">⏰ sans retour depuis ' + p.jours_depuis_reception + ' j</span>' : ''}
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+          <select data-action="statut" data-id="${escapeHtml(p.id)}">
+            ${CAMPAIGN_STATUSES.map(([v, l]) => `<option value="${v}"${p.status === v ? ' selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <span class="badge badge-cat">📣 ${p.posts_count} publication${p.posts_count > 1 ? 's' : ''}</span>
+          <button class="btn" data-action="plus" data-id="${escapeHtml(p.id)}" title="Compter une publication de plus">+1</button>
+          <button class="btn" data-action="moins" data-id="${escapeHtml(p.id)}" title="Annuler la dernière"${p.posts_count ? '' : ' disabled'}>−1</button>
+        </span>
+      </div>
+      ${Array.isArray(p.posts) && p.posts.length ? `<div style="margin-top:6px;font-size:12px;color:var(--muted);">${p.posts.map((post) => post.url ? `<a href="${escapeHtml(post.url)}" target="_blank" rel="noopener">${escapeHtml(post.kind || 'contenu')} ↗</a>` : escapeHtml(post.kind || 'contenu')).join(' · ')}</div>` : ''}
+    </div>`).join('');
+
+  list.querySelectorAll('[data-action="statut"]').forEach((sel) => {
+    sel.onchange = () => patchParticipant({ id: sel.dataset.id, status: sel.value });
+  });
+  list.querySelectorAll('[data-action="plus"]').forEach((b) => {
+    b.onclick = () => {
+      const url = prompt('Lien de la publication (facultatif, mais c\'est lui qui rend le compte vérifiable) :');
+      if (url === null) return; // Annuler
+      patchParticipant({ id: b.dataset.id, action: 'add_post', url: url.trim() || null });
+    };
+  });
+  list.querySelectorAll('[data-action="moins"]').forEach((b) => {
+    b.onclick = () => patchParticipant({ id: b.dataset.id, action: 'remove_post' });
+  });
+}
+
+async function patchParticipant(body) {
+  try {
+    await api('/api/campaigns/participants', { method: 'PATCH', body });
+    await loadCampaigns();
+    if (state.selectedTicket && state.selectedTicket.influence_relation_id) {
+      await loadLinkedProfile(state.selectedTicket.influence_relation_id);
+    }
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+async function createCampaignPrompt() {
+  const name = prompt('Nom de la campagne (ex. « FW26 Elisabeth ») :');
+  if (!name || !name.trim()) return;
+  try {
+    const data = await api('/api/campaigns', { method: 'POST', body: { name: name.trim() } });
+    state.campaignId = data.campaign.id;
+    await loadCampaigns();
+    toast('Campagne créée.');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+/** Ajoute l'influenceuse du ticket courant à une campagne. */
+async function addCurrentToCampaign() {
+  const t = state.selectedTicket;
+  if (!t || !t.influence_relation_id) return;
+  try {
+    if (!state.campaigns || state.campaigns.length === 0) {
+      const data = await api('/api/campaigns');
+      state.campaigns = data.campaigns || [];
+    }
+    if (state.campaigns.length === 0) {
+      toast('Crée d\'abord une campagne dans la vue Campagnes.', true);
+      return;
+    }
+    const liste = state.campaigns.map((c, i) => `${i + 1}. ${c.name}`).join('\n');
+    const reponse = prompt('À quelle campagne l\'ajouter ?\n' + liste + '\n\nNuméro :', '1');
+    if (!reponse) return;
+    const choisie = state.campaigns[parseInt(reponse, 10) - 1];
+    if (!choisie) { toast('Numéro inconnu.', true); return; }
+    await api('/api/campaigns/participants', {
+      method: 'POST',
+      body: { campaign_id: choisie.id, relation_id: t.influence_relation_id, status: 'acceptee' },
+    });
+    await loadLinkedProfile(t.influence_relation_id);
+    toast('Ajoutée à « ' + choisie.name + ' ».');
+  } catch (err) {
+    toast('Erreur : ' + err.message, true);
+  }
+}
+
+document.getElementById('campaignNewBtn').onclick = createCampaignPrompt;
+document.getElementById('campaignSelect').onchange = (e) => {
+  state.campaignId = e.target.value;
+  loadCampaignParticipants(e.target.value);
+};
 
 function initViewSwitch() {
   document.querySelectorAll('#viewSwitch button').forEach((btn) => {

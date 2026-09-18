@@ -91,6 +91,15 @@ CREATE TABLE influence_accounts (
   profile_picture_url TEXT,
   age INTEGER,
   saved_story_url TEXT,
+  -- Ajout 2026-09-18, demandé par Luc : les coordonnées d'envoi et la
+  -- pointure données par l'influenceuse dans la conversation complètent sa
+  -- fiche automatiquement (voir lib/ai/profile-fill.js). Avant, elles
+  -- restaient enfouies dans l'analyse d'un ticket : à la collaboration
+  -- suivante, il fallait les redemander. `city` et `country` existaient déjà.
+  address TEXT,
+  postal_code TEXT,
+  phone TEXT,
+  shoe_size TEXT,
   frequent_tags TEXT[],
   instagram_synced_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -239,6 +248,9 @@ CREATE TABLE campaigns (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   segment_id UUID REFERENCES segments(id),
+  -- Ajout 2026-09-18 : une campagne se nomme (« FW26 Elisabeth ») pour qu'on
+  -- puisse y rattacher des participantes et en tirer un bilan.
+  name TEXT,
   objective TEXT,
   offer TEXT,
   budget_or_product TEXT,
@@ -250,8 +262,37 @@ CREATE TABLE campaigns (
   cost NUMERIC,
   content_obtained TEXT,
   attributed_revenue NUMERIC,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Ajout 2026-09-18, demandé par Luc : suivi de participation, campagne par
+-- campagne. « A reçu », puis « a publié une fois, deux fois… ou pas du tout ».
+-- L'objectif qu'il a énoncé est l'exclusion : repérer celles qui reçoivent une
+-- paire et ne publient jamais, avant de leur en envoyer une deuxième.
+CREATE TABLE campaign_participants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  relation_id UUID NOT NULL REFERENCES tenant_influence_relations(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES influence_accounts(id) ON DELETE CASCADE,
+  -- pressentie → acceptee → a_recu → a_publie / n_a_pas_publie / exclue
+  status TEXT NOT NULL DEFAULT 'pressentie',
+  posts_count INTEGER NOT NULL DEFAULT 0 CHECK (posts_count >= 0),
+  -- [{ url, kind, at, source, added_by }] : une ligne par contenu constaté.
+  posts JSONB NOT NULL DEFAULT '[]'::jsonb,
+  gifting_order_id UUID,
+  received_at TIMESTAMPTZ,
+  first_post_at TIMESTAMPTZ,
+  last_post_at TIMESTAMPTZ,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (campaign_id, relation_id)
+);
+CREATE INDEX campaign_participants_tenant_idx   ON campaign_participants (tenant_id, campaign_id);
+CREATE INDEX campaign_participants_relation_idx ON campaign_participants (tenant_id, relation_id);
+CREATE INDEX campaign_participants_account_idx  ON campaign_participants (account_id);
 ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON campaigns
   USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
