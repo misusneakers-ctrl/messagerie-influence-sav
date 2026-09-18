@@ -51,8 +51,23 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
         ? { connected: true, email: gmailRow.metadata?.email || null, connected_at: gmailRow.metadata?.connected_at || null,
             last_sync_at: gmailRow.metadata?.last_sync_at || null, can_send: String(gmailRow.metadata?.scope || '').includes('gmail.send') }
         : { connected: false, app_configured: !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET) };
-      const shopifyReadonly = otherCreds.some((c) => c.type === 'shopify_readonly');
-      return { settings, stats: rows[0], gifting: giftingCred, gmail, shopify_readonly: shopifyReadonly };
+      // Ajout 2026-09-18 : on renvoie aussi les DROITS réellement accordés au
+      // jeton de lecture. Le 18/09, la version 6 de l'app déclarait bien
+      // read_products et read_inventory, mais le jeton en base n'avait que
+      // read_orders — un jeton garde les droits qu'il avait à sa création.
+      // Rien à l'écran ne permettait de s'en apercevoir.
+      const roRow = otherCreds.find((c) => c.type === 'shopify_readonly');
+      const roScope = roRow ? String(roRow.metadata?.scope || '') : '';
+      const shopifyReadonly = !!roRow;
+      const shopifyReadonlyDetail = {
+        connected: shopifyReadonly,
+        scope: roScope || null,
+        can_read_orders: roScope.includes('read_orders'),
+        can_read_all_orders: roScope.includes('read_all_orders'),
+        can_read_stock: roScope.includes('read_products') && roScope.includes('read_inventory'),
+        connected_at: roRow ? (roRow.metadata?.connected_at || null) : null,
+      };
+      return { settings, stats: rows[0], gifting: giftingCred, gmail, shopify_readonly: shopifyReadonly, shopify_readonly_detail: shopifyReadonlyDetail };
     });
     const neverAnalyzed = await countCandidates(tenant, 'classify');
     sendJson(res, 200, {
@@ -61,6 +76,7 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       gifting: data.gifting,
       gmail: data.gmail,
       shopify_readonly: data.shopify_readonly,
+      shopify_readonly_detail: data.shopify_readonly_detail,
       ai_configured: isConfigured(),
       model: getModel(),
     });

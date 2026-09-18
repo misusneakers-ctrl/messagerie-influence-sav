@@ -871,10 +871,14 @@
       <textarea id="aiSetExtra"></textarea>
       <h3 style="margin-top:18px;">📧 Boîte e-mail SAV et 🔎 enquête d'Alice</h3>
       <div class="ai-stats" id="aiSetInvStatus">…</div>
-      <div style="margin-top:8px;"><button class="btn" id="aiSetGmailConnect">📧 Connecter la boîte e-mail SAV</button></div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn" id="aiSetGmailConnect">📧 Connecter la boîte e-mail SAV</button>
+        <button class="btn" id="aiSetReadonlyConnect">🔎 Connecter Shopify (lecture : commandes et stock)</button>
+      </div>
       <h3 style="margin-top:18px;">🛍️ Commandes gifting Shopify</h3>
       <div class="ai-stats" id="aiSetGiftStatus">…</div>
       <div style="margin-top:8px;"><button class="btn" id="aiSetGiftConnect">🔗 Connecter Shopify (commandes gifting)</button></div>
+      <div class="ai-stats" style="margin-top:4px;opacity:.75;">Cette app crée les commandes à 0 €. Elle est distincte de l'app de lecture ci-dessus, qui sert au stock et à la recherche de commandes.</div>
       <label>Quota : paires offertes maximum par modèle/coloris sur une collection</label>
       <input type="number" id="aiSetGiftQuota" min="0" max="1000" />
       <label>Intitulé de la remise 100 % (sert aussi à compter le quota)</label>
@@ -922,8 +926,23 @@
       document.getElementById('aiSetGiftQuota').value = st.gifting_quota_per_colorway != null ? st.gifting_quota_per_colorway : 5;
       const g = data.gifting || {};
       const gm = data.gmail || {};
+      // Ajout 2026-09-18 : on affiche les droits RÉELS du jeton. Un jeton
+      // garde les droits qu'il avait à sa création : mettre l'app à jour sur
+      // le Dev Dashboard ne suffit pas, il faut reconnecter.
+      const ro = data.shopify_readonly_detail || { connected: !!data.shopify_readonly };
+      const roLines = !ro.connected
+        ? '⚠️ Shopify lecture non connecté : ni recherche de commandes, ni vérification de stock. Clique sur « Connecter Shopify (lecture) ».'
+        : [
+            ro.can_read_all_orders
+              ? '✅ Recherche de commandes Shopify active (historique complet)'
+              : '⚠️ Commandes limitées aux 60 derniers jours : droit read_all_orders absent du jeton — reconnecte Shopify (lecture).',
+            ro.can_read_stock
+              ? '✅ Vérification du stock sur l\'API Shopify (stock réel, par emplacement)'
+              : '⚠️ Stock lu sur la vitrine publique, lecture peu fiable : droits read_products et read_inventory absents du jeton — reconnecte Shopify (lecture).',
+            `<span style="opacity:.7;">Droits du jeton : ${escapeHtml(ro.scope || 'inconnus')}</span>`,
+          ].join('<br>');
       document.getElementById('aiSetInvStatus').innerHTML = `
-        ${data.shopify_readonly ? '✅ Recherche de commandes Shopify active' : '⚠️ Recherche de commandes Shopify indisponible (accès lecture non connecté)'}<br>
+        ${roLines}<br>
         ✅ Recherche dans les autres conversations de la messagerie<br>
         ${gm.connected ? `✅ Boîte e-mail SAV connectée : ${escapeHtml(gm.email || '')} — ${gm.can_send ? 'réception + réponses par e-mail' : '⚠️ lecture seule : reconnecte pour pouvoir répondre par e-mail'}${gm.last_sync_at ? ' · dernière synchro ' + escapeHtml(fmtDate(gm.last_sync_at)) : ''}`
           : gm.app_configured ? '⚠️ Boîte e-mail SAV pas encore connectée : clique ci-dessous et choisis le compte de la boîte SAV.'
@@ -932,7 +951,7 @@
       document.getElementById('aiSetGiftStatus').innerHTML = g.connected
         ? `✅ Shopify connecté : ${escapeHtml(g.shop_name || g.shop || '')} (droits : ${escapeHtml(g.scope || '?')})`
         : '⚠️ Shopify pas encore connecté pour les commandes gifting. Il faut d\'abord créer l\'app dédiée sur le Dev Dashboard et poser ses identifiants sur Vercel (voir la procédure), puis cliquer ci-dessous.';
-      document.getElementById('aiSetGiftConnect').textContent = g.connected ? '🔗 Reconnecter Shopify' : '🔗 Connecter Shopify (commandes gifting)';
+      document.getElementById('aiSetGiftConnect').textContent = g.connected ? '🔗 Reconnecter Shopify (commandes gifting)' : '🔗 Connecter Shopify (commandes gifting)';
       renderAiStats(data);
     } catch (err) {
       document.getElementById('aiSetStats').textContent = 'Erreur de chargement : ' + err.message;
@@ -981,6 +1000,9 @@
   document.getElementById('aiSetClassifyBtn').onclick = classifyHistory;
   document.getElementById('aiSetGmailConnect').onclick = () => {
     window.open('/api/gmail/connect?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
+  };
+  document.getElementById('aiSetReadonlyConnect').onclick = () => {
+    window.open('/api/shopify/readonly-connect?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
   };
   document.getElementById('aiSetGiftConnect').onclick = () => {
     window.open('/api/gifting/shopify-connect?tenant=' + encodeURIComponent(state.tenant), '_blank', 'noopener');
