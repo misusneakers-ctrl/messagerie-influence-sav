@@ -1534,7 +1534,11 @@ function renderThread() {
     const attachmentsHtml = attachments.length === 0 ? '' : `<div class="attachments">${attachments.map((a) => {
       if (a.type === 'image') return `<img src="${escapeHtml(a.url)}" alt="pièce jointe" onclick="window.open('${escapeHtml(a.url)}','_blank')" />`;
       if (a.type === 'video') return `<video controls src="${escapeHtml(a.url)}"></video>`;
-      return `<a class="file-attachment" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">📎 Pièce jointe</a>`;
+      // Ajout 2026-09-18 : nom (et poids) du fichier, au lieu d'un « 📎 Pièce
+      // jointe » anonyme — utile depuis que les pièces jointes des e-mails
+      // arrivent vraiment (facture.pdf, etiquette.pdf…).
+      const ko = a.size ? ` (${Math.max(1, Math.round(a.size / 1024))} Ko)` : '';
+      return `<a class="file-attachment" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">📎 ${escapeHtml(a.filename || 'Pièce jointe')}${ko}</a>`;
     }).join('')}</div>`;
 
     const showMeta = !groupedBottom || !!m.error || needsAction;
