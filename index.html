@@ -2616,7 +2616,15 @@ async function syncInstagram() {
     try {
       mails = await api('/api/tickets/sync-email', { method: 'POST', signal: controller.signal });
       if (mails && mails.messages_created) parts.push(`${mails.messages_created} e-mail${mails.messages_created > 1 ? 's' : ''}`);
-    } catch (err) { /* boîte non connectée ou synchro en échec : on continue */ }
+    } catch (err) {
+      // La boîte peut ne pas être connectée : ce n'est pas une erreur.
+      // En revanche, un refus de Gmail doit se voir — sinon on croit que les
+      // e-mails sont à jour alors qu'ils ne le sont pas.
+      const motif = err.payload && err.payload.detail ? err.payload.detail : (err.payload && err.payload.error) || err.message;
+      if (err.payload && err.payload.error !== 'gmail_not_connected') {
+        parts.push(`e-mails non synchronisés (${String(motif).slice(0, 120)})`);
+      }
+    }
 
     // Préparation des brouillons, par lots tant qu'il en reste.
     let drafts = 0;

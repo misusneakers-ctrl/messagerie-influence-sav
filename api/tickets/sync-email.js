@@ -21,6 +21,12 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       return;
     }
     if (err.code === 'gmail_token_refresh_failed' || err.code === 'gmail_api_error') {
+      // Correctif 2026-09-18 : le détail de l'erreur Gmail (code HTTP et
+      // message de Google) n'était renvoyé qu'au navigateur. Résultat : « gmail
+      // api error » à l'écran, et RIEN dans les journaux Vercel — impossible de
+      // savoir si c'est un quota, un jeton périmé ou un message illisible.
+      // Même leçon que le stock ce matin : ne jamais avaler une erreur.
+      console.error('[gmail] synchro impossible :', err.code, '—', String(err.message || '').slice(0, 300));
       sendJson(res, 502, { error: err.code, detail: err.message });
       return;
     }
