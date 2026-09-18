@@ -342,63 +342,312 @@
     background:#fff;border:1px solid var(--border);font-size:13px;}
   .queue-summary .qs-line{margin:3px 0;}
   .queue-summary .qs-err{color:var(--red);}
+
+  /* ==========================================================
+     V2 — Refonte du 18/09/2026
+     Beige et rose pâle, fuchsia pour les actions, violet pour l'IA.
+     Ce bloc arrive APRÈS l'ancien : à spécificité égale, il gagne.
+     Les jetons ci-dessous sont les mêmes noms qu'avant, donc les modales,
+     la file de validation et les fiches profils suivent sans être retouchées.
+     ========================================================== */
+  :root{
+    --bg:#F6F1EA; --panel:#FFFFFF; --panel-2:#FBF7F2;
+    --border:#EADFD3; --border-soft:#F2E9DF;
+    --text:#2A2320; --muted:#8C7F75;
+    --accent:#D6246E; --accent-bg:#FBE9EF; --accent-dark:#B21058;
+    --pink:#FBE9EF; --pink-line:#F3D3DE;
+    --violet:#7C3AED; --violet-soft:#F2ECFF;
+    --green:#0F7B4F; --green-soft:#E4F4EC;
+    --amber:#9A6412; --amber-soft:#FDF0DC;
+    --red:#B3261E;
+    --radius:12px;
+    --shadow:0 1px 2px rgba(42,35,32,.05), 0 8px 24px rgba(42,35,32,.06);
+    /* largeurs réglables à la souris, mémorisées par marque */
+    --w-rail:232px; --w-list:372px; --w-side:316px;
+  }
+  body{background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+
+  /* ---------- ossature ---------- */
+  .app{display:grid;grid-template-columns:var(--w-rail) minmax(0,1fr);height:100vh;overflow:hidden;}
+  .app.no-rail{grid-template-columns:0 minmax(0,1fr);}
+  .app.no-rail #paneRail{visibility:hidden;}
+  #mainArea{min-width:0;height:100vh;overflow:hidden;}
+  .layout#inboxView{display:grid;grid-template-columns:var(--w-list) minmax(260px,1fr) var(--w-side);
+    height:100vh;gap:0;padding:0;}
+  .app.no-side .layout#inboxView{grid-template-columns:var(--w-list) minmax(260px,1fr) 0;}
+  .app.no-side #paneSide{visibility:hidden;}
+  .pane{position:relative;min-width:0;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+  .pane > .col{min-width:0;flex:1;overflow-y:auto;border:0;}
+
+  /* poignées de redimensionnement */
+  .handle{position:absolute;top:0;bottom:0;width:9px;z-index:12;cursor:col-resize;
+    display:flex;align-items:center;justify-content:center;}
+  .handle.right{right:-4px;} .handle.left{left:-4px;}
+  .handle::before{content:"";width:2px;height:100%;background:transparent;transition:background .12s;}
+  .handle:hover::before,.handle.active::before{background:var(--accent);}
+  body.resizing{cursor:col-resize;user-select:none;}
+
+  /* boutons de repli */
+  .fold{position:absolute;z-index:14;width:22px;height:22px;padding:0;border-radius:7px;
+    border:1px solid var(--border);background:var(--panel);color:var(--muted);
+    display:grid;place-items:center;font-size:11px;line-height:1;box-shadow:var(--shadow);cursor:pointer;}
+  .fold:hover{color:var(--accent);border-color:var(--pink-line);}
+  #foldRail{top:14px;right:8px;} #foldSide{top:14px;left:8px;}
+  .show-again{position:fixed;top:14px;z-index:30;width:28px;height:28px;}
+  #showRail{left:8px;} #showSide{right:8px;}
+  [hidden]{display:none!important;}
+
+  /* ---------- rail ---------- */
+  .rail{background:transparent;padding:14px 12px 18px;display:flex;flex-direction:column;gap:16px;}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:-.01em;padding:2px 4px 0;}
+  .brand-dot{width:24px;height:24px;border-radius:8px;
+    background:linear-gradient(135deg,var(--accent),var(--violet));}
+  .tenant-switch{display:flex;background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:3px;gap:3px;}
+  .tenant-switch button{flex:1;border:0;background:transparent;padding:6px 0;border-radius:7px;
+    font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;}
+  .tenant-switch button.active{background:var(--accent);color:#fff;}
+  .rail-group h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    margin:0 0 6px 8px;font-weight:650;}
+  .view-switch{display:flex;flex-direction:column;gap:1px;background:transparent;padding:0;border-radius:0;}
+  .view-switch button,.rail-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+    border:0;background:transparent;padding:7px 9px;border-radius:9px;font-size:13.5px;
+    color:var(--text);cursor:pointer;}
+  .view-switch button:hover,.rail-item:hover{background:#F0E7DC;}
+  .view-switch button.active,.rail-item.active{background:var(--pink);color:var(--accent-dark);font-weight:640;}
+  /* le bouton « Archivés » est un élément de rail, pas un bouton de barre */
+  #archivedToggleBtn{border:0!important;background:transparent!important;box-shadow:none;}
+  #archivedToggleBtn:hover{background:#F0E7DC!important;}
+  #archivedToggleBtn.active{background:var(--pink)!important;color:var(--accent-dark);font-weight:640;}
+  .nav-item{display:flex;justify-content:space-between;padding:7px 9px;border-radius:9px;
+    cursor:pointer;color:var(--text);font-size:13.5px;}
+  .nav-item:hover{background:#F0E7DC;}
+  .nav-item.active{background:var(--pink);color:var(--accent-dark);font-weight:640;}
+  .nav-item .count{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;}
+  .nav-item.active .count{color:var(--accent);}
+
+  /* ---------- colonne liste ---------- */
+  #listCol{background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border);}
+  #paneList{container-type:inline-size;container-name:listpane;}
+  .topbar{position:sticky;top:0;z-index:5;background:var(--panel);
+    border-bottom:1px solid var(--border-soft);padding:12px 14px;
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .topbar .search{flex:1;min-width:96px;display:flex;align-items:center;gap:7px;
+    background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:6px 10px;}
+  .topbar .search-icon{color:var(--muted);font-size:12px;}
+  .topbar .search input[type="text"]{flex:1;width:auto;min-width:0;border:0;background:transparent;
+    outline:none;font-size:13px;color:var(--text);padding:0;}
+  .topbar-actions{display:flex;gap:8px;align-items:center;margin-left:auto;}
+  /* Colonne étroite : la recherche prend toute la première ligne, les boutons
+     passent dessous — rien ne disparaît quand on rétrécit la liste. */
+  @container listpane (max-width:360px){
+    .topbar .search{flex:1 0 100%;}
+    .topbar-actions{margin-left:0;width:100%;justify-content:flex-end;}
+    .list-bulkbar{flex-wrap:wrap;}
+    .list-bulkbar .bulk{width:100%;display:flex;gap:6px;justify-content:flex-end;}
+  }
+  .list-toolbar,.list-bulkbar{background:var(--panel);}
+  .list-bulkbar{border-bottom:1px solid var(--border-soft);}
+
+  /* menu « ⋯ » */
+  .menu-wrap{position:relative;}
+  .menu{position:absolute;right:0;top:38px;width:262px;background:var(--panel);
+    border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);
+    padding:6px;z-index:20;display:flex;flex-direction:column;gap:2px;}
+  .menu .btn{display:flex;width:100%;justify-content:flex-start;border:0;background:transparent;
+    padding:8px 10px;border-radius:9px;font-size:13px;font-weight:500;text-align:left;}
+  .menu .btn:hover{background:var(--pink);}
+  .menu-sep{height:1px;background:var(--border-soft);margin:4px 8px;}
+
+  /* ---------- boutons, badges ---------- */
+  .btn{border:1px solid var(--border);background:var(--panel);border-radius:10px;
+    padding:7px 12px;font-size:13px;font-weight:560;white-space:nowrap;}
+  .btn:hover{background:var(--panel-2);}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn-primary:hover{background:var(--accent-dark);}
+  .btn-primary:disabled{background:#EFB9CF;border-color:#EFB9CF;}
+  .btn-danger{color:var(--red);border-color:var(--pink-line);background:var(--panel);}
+  .btn-danger:hover{background:var(--pink);}
+  .badge{border-radius:99px;font-size:11px;font-weight:600;padding:2px 8px;}
+  .badge-chan-email{background:#E7EEFB;color:#28508F;}
+  .badge-chan-instagram{background:#FBE7F1;color:#A02063;}
+  .badge-cat{background:#F1ECFB;color:#5B3BA8;}
+  .badge-ai{background:var(--violet-soft);color:var(--violet);}
+
+  /* ---------- liste des tickets ---------- */
+  .ticket-list{padding:0;}
+  .ticket-item{padding:12px 14px;border-radius:0;margin:0;border:0;
+    border-bottom:1px solid var(--border-soft);gap:10px;}
+  .ticket-item:hover{background:var(--panel-2);}
+  .ticket-item.active{background:var(--pink);border-color:transparent;}
+  .ticket-item .name{font-size:13.5px;}
+  .ticket-item .summary{font-size:12.5px;}
+
+  /* ---------- conversation ---------- */
+  #detailCol{background:var(--panel-2);display:flex;flex-direction:column;overflow:hidden;padding:0;}
+  .detail-header{background:var(--panel);border-bottom:1px solid var(--border);padding:14px 20px 12px;}
+  .detail-header h2{font-size:16px;font-weight:660;letter-spacing:-.01em;margin:0;}
+  .detail-header .sub{font-size:12.5px;color:var(--muted);margin-top:3px;}
+  .thread{flex:1;overflow-y:auto;padding:14px 18px;background:var(--panel-2);}
+  .msg{max-width:64%;padding:8px 12px;border-radius:13px;font-size:13px;line-height:1.42;
+    margin-bottom:5px;}
+  .msg.inbound{background:var(--panel);border:1px solid var(--border-soft);}
+  .msg.outbound{background:var(--pink);border:1px solid var(--pink-line);}
+  .msg .meta{font-size:10.5px;margin-top:3px;}
+  .msg .attachments img,.msg .attachments video{max-width:58px;max-height:58px;border-radius:8px;}
+  .msg .file-attachment{font-size:12px;padding:5px 9px;border-radius:8px;}
+  .composer{background:var(--panel);border-top:1px solid var(--border);padding:10px 18px 13px;}
+  .composer textarea{min-height:62px;border-radius:var(--radius);background:var(--panel-2);
+    border:1px solid var(--border);font-size:13.5px;}
+  .composer textarea:focus{background:var(--panel);border-color:var(--pink-line);outline:none;}
+  .ai-box{background:var(--violet-soft);border:1px solid #E2D8FB;border-radius:var(--radius);}
+  .msg .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
+  .msg .actions .btn{padding:5px 9px;font-size:12.5px;}
+  /* un brouillon porte trois boutons : on lui laisse un peu plus de largeur */
+  .msg.outbound:has(.actions){max-width:76%;}
+  /* Note d'explication du composeur : discrète et limitée à deux lignes,
+     texte complet au survol (attribut title). Elle prenait un tiers de la
+     colonne à chaque conversation ouverte. */
+  .composer .hint{font-size:11.5px;color:var(--muted);line-height:1.35;cursor:help;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    max-height:2.8em;}
+
+  /* ---------- panneau client (droite) ---------- */
+  .side{background:var(--panel);border-left:1px solid var(--border);padding:16px 14px;
+    display:flex;flex-direction:column;gap:12px;}
+  .side-card{border:1px solid var(--border-soft);border-radius:var(--radius);
+    background:var(--panel-2);padding:12px;}
+  .side-card h4{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--muted);font-weight:650;}
+  .side-card .field-row{display:block;}
+  .side-card label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:3px;}
+  .side-card select,.side-card input[type="text"]{width:100%;border:1px solid var(--border);
+    border-radius:9px;padding:7px 9px;font-size:13px;background:var(--panel);}
+  .side-field{margin-bottom:9px;}
+  .side-field:last-child{margin-bottom:0;}
+  .side-kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:3px 0;}
+  .side-kv span{color:var(--muted);}
+
+  /* ---------- file de validation ---------- */
+  .queue-view{background:var(--bg);}
+  .queue-toolbar{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--border);}
+  .queue-tabs{background:var(--bg);border-radius:10px;}
+  .queue-tabs button.active{background:var(--accent);color:#fff;}
+  .queue-card{border-radius:var(--radius);border-color:var(--border-soft);}
 </style>
 </head>
 <body>
 
-<header>
-  <h1>Messagerie</h1>
-  <div class="tenant-switch" id="tenantSwitch">
-    <button data-tenant="bbp">BBP</button>
-    <button data-tenant="misu">Misü</button>
-  </div>
-  <div class="view-switch" id="viewSwitch">
-    <button data-view="inbox" class="active">Boîte</button>
-    <button data-view="queue">File de validation</button>
-  </div>
-  <div class="search" id="searchWrap">
-    <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
-  </div>
-  <button class="btn" id="archivedToggleBtn">📦 Archivés</button>
-  <button class="btn" id="syncInstagramBtn">🔄 Actualiser Instagram</button>
-  <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
-  <button class="btn" id="connectFacebookBtn">🔗 Connecter Facebook</button>
-  <button class="btn" id="autoLinkInfluenceBtn" title="Lie automatiquement un profil influence (créé si besoin) à tous les tickets Instagram qui n'en ont pas encore, à partir du handle du contact.">🔗 Lier tous les profils Instagram</button>
-  <button class="btn" id="syncAllBusinessBtn" title="Va chercher followers/engagement/tags pour TOUS les profils influence liés à cette marque qui n'ont pas encore leurs infos (ou pour les rafraîchir). Nécessite Facebook connecté pour cette marque.">🔄 Synchroniser tous les profils</button>
-  <button class="btn btn-primary" id="newTicketBtn">+ Nouveau ticket</button>
-</header>
+<!-- ============================================================
+     Refonte 2026-09-18 (demandée par Luc) : quatre colonnes
+     redimensionnables — vues / liste / conversation / client, un en-tête
+     réduit à trois boutons, le reste dans le menu « ⋯ ».
+     Les identifiants des boutons sont INCHANGÉS : tout le code existant
+     (et ai-ui.js, qui greffe « ✨ Assistante IA » après #settingsBtn et
+     le panneau IA après #influenceBox) continue de fonctionner tel quel.
+     ============================================================ -->
+<div class="app" id="app">
 
-<div class="layout" id="inboxView">
-  <div class="col col-nav" id="navCol">
-    <h2>Statut</h2>
-    <div id="statusNav"></div>
-    <h2>Catégorie</h2>
-    <div id="categoryNav"></div>
+  <!-- ---------- Rail : marque, vues, filtres ---------- -->
+  <div class="pane" id="paneRail">
+    <button class="fold" id="foldRail" title="Replier le menu">‹</button>
+    <aside class="col rail">
+      <div class="brand"><span class="brand-dot"></span>Messagerie</div>
+
+      <div class="tenant-switch" id="tenantSwitch">
+        <button data-tenant="bbp">BBP</button>
+        <button data-tenant="misu">Misü</button>
+      </div>
+
+      <div class="rail-group">
+        <h3>Vues</h3>
+        <div class="view-switch" id="viewSwitch">
+          <button data-view="inbox" class="active">📥 Boîte</button>
+          <button data-view="queue">✅ File de validation</button>
+        </div>
+        <button class="rail-item" id="archivedToggleBtn">📦 Archivés</button>
+      </div>
+
+      <div class="rail-group">
+        <h3>Statut</h3>
+        <div id="statusNav"></div>
+      </div>
+
+      <div class="rail-group">
+        <h3>Catégorie</h3>
+        <div id="categoryNav"></div>
+      </div>
+    </aside>
+    <div class="handle right" data-edge="rail"><span class="grip"></span></div>
   </div>
 
-  <div class="col" id="listCol">
-    <div class="list-toolbar">
-      <label for="ticketSortSelect">Tri</label>
-      <select id="ticketSortSelect">
-        <option value="desc">Plus récents d'abord</option>
-        <option value="asc">Plus anciens d'abord</option>
-      </select>
+  <div id="mainArea">
+  <div class="layout" id="inboxView">
+
+    <!-- ---------- Liste des conversations ---------- -->
+    <div class="pane" id="paneList">
+      <div class="col" id="listCol">
+        <div class="topbar">
+          <div class="search" id="searchWrap">
+            <span class="search-icon">🔎</span>
+            <input type="text" id="searchInput" placeholder="Chercher : nom, handle, email, commande…" />
+          </div>
+          <div class="topbar-actions">
+            <button class="btn" id="syncInstagramBtn" title="Actualiser : Instagram et e-mails">🔄</button>
+            <button class="btn btn-primary" id="newTicketBtn">+ Nouveau</button>
+            <div class="menu-wrap">
+              <button class="btn" id="moreMenuBtn" title="Plus d'actions">⋯</button>
+              <div class="menu" id="moreMenu" hidden>
+                <button class="btn" id="settingsBtn">⚙️ Statuts / catégories</button>
+                <div class="menu-sep"></div>
+                <button class="btn" id="autoLinkInfluenceBtn" title="Lie automatiquement un profil influence (créé si besoin) à tous les tickets Instagram qui n'en ont pas encore, à partir du handle du contact.">🔗 Lier tous les profils Instagram</button>
+                <button class="btn" id="syncAllBusinessBtn" title="Va chercher followers/engagement/tags pour TOUS les profils influence liés à cette marque qui n'ont pas encore leurs infos (ou pour les rafraîchir). Nécessite Facebook connecté pour cette marque.">🔄 Synchroniser tous les profils</button>
+                <button class="btn" id="connectFacebookBtn">🔗 Connecter Facebook</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="list-toolbar">
+          <label for="ticketSortSelect">Tri</label>
+          <select id="ticketSortSelect">
+            <option value="desc">Plus récents d'abord</option>
+            <option value="asc">Plus anciens d'abord</option>
+          </select>
+        </div>
+        <!-- Ajout 2026-09-17 : sélection multiple + archivage / suppression en lot. -->
+        <div class="list-bulkbar">
+          <label><input type="checkbox" id="listSelectAll" /> Tout cocher</label>
+          <span id="listSelectedHint"></span>
+          <span class="spacer"></span>
+          <span class="bulk">
+            <button class="btn" id="bulkArchiveBtn" disabled>📦 Archiver</button>
+            <button class="btn btn-danger" id="bulkDeleteBtn" disabled>🗑 Supprimer</button>
+          </span>
+        </div>
+        <div class="ticket-list" id="ticketList"><div class="empty">Chargement…</div></div>
+      </div>
+      <div class="handle right" data-edge="list"><span class="grip"></span></div>
     </div>
-    <!-- Ajout 2026-09-17 : sélection multiple + archivage / suppression en lot. -->
-    <div class="list-bulkbar">
-      <label><input type="checkbox" id="listSelectAll" /> Tout cocher</label>
-      <span id="listSelectedHint"></span>
-      <span class="spacer"></span>
-      <button class="btn" id="bulkArchiveBtn" disabled>📦 Archiver</button>
-      <button class="btn btn-danger" id="bulkDeleteBtn" disabled>🗑 Supprimer</button>
-    </div>
-    <div class="ticket-list" id="ticketList"><div class="empty">Chargement…</div></div>
-  </div>
 
-  <div class="col detail" id="detailCol">
-    <div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>
+    <!-- ---------- Conversation ---------- -->
+    <div class="pane" id="paneDetail">
+      <div class="col detail" id="detailCol">
+        <div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>
+      </div>
+    </div>
+
+    <!-- ---------- Fiche cliente ---------- -->
+    <div class="pane" id="paneSide">
+      <div class="handle left" data-edge="side"><span class="grip"></span></div>
+      <button class="fold" id="foldSide" title="Replier le panneau">›</button>
+      <aside class="col side" id="sideCol">
+        <div class="empty" style="margin-top:40px;font-size:12.5px;">Aucune conversation ouverte.</div>
+      </aside>
+    </div>
   </div>
-</div>
 
 <div class="queue-view" id="queueView" style="display:none;">
   <div class="queue-toolbar">
@@ -414,6 +663,11 @@
   <div id="queueSummary"></div>
   <div class="queue-list" id="queueList"><div class="empty">Chargement…</div></div>
 </div>
+  </div><!-- /#mainArea -->
+</div><!-- /#app -->
+
+<button class="btn fold show-again" id="showRail" title="Afficher le menu" hidden>☰</button>
+<button class="btn fold show-again" id="showSide" title="Afficher la fiche cliente" hidden>‹</button>
 
 <div class="modal-backdrop" id="newTicketModal">
   <div class="modal">
@@ -569,6 +823,14 @@ const state = {
     edited: new Map(),   // message_id -> texte modifié
   },
 };
+
+// Refonte 2026-09-18 : vider la conversation ET la fiche cliente d'un seul geste.
+function clearDetailAndSide() {
+  const d = document.getElementById('detailCol');
+  if (d) d.innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+  const s = document.getElementById('sideCol');
+  if (s) s.innerHTML = '<div class="empty" style="margin-top:40px;font-size:12.5px;">Aucune conversation ouverte.</div>';
+}
 
 // ---------- API ----------
 async function api(path, opts = {}) {
@@ -797,7 +1059,7 @@ async function bulkArchiveSelection() {
   }
   if (state.selectedTicket && ids.includes(state.selectedTicket.id)) {
     state.selectedTicket = null;
-    document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+    clearDetailAndSide();
   }
   state.listSelected.clear();
   await loadTickets();
@@ -833,7 +1095,7 @@ async function bulkDeleteSelection() {
   }
   if (state.selectedTicket && ids.includes(state.selectedTicket.id)) {
     state.selectedTicket = null;
-    document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+    clearDetailAndSide();
   }
   state.listSelected.clear();
   await loadTickets();
@@ -912,16 +1174,6 @@ async function renderDetail() {
           <button class="btn btn-danger" id="deleteTicketBtn">🗑 Supprimer</button>
         </div>
       </div>
-      <div class="field-row">
-        <div><label>Statut</label><select id="statusSelect">${statusOptions}</select></div>
-        <div><label>Catégorie</label><select id="categorySelect">${catOptions}</select></div>
-        <div><label>Commande liée</label><input type="text" id="orderInput" value="${escapeHtml(t.related_order_number || '')}" placeholder="Ex. C294671" /></div>
-        <div><label>Assigné à</label><input type="text" id="assignedInput" value="${escapeHtml(t.assigned_to || '')}" placeholder="Ex. Luc" /></div>
-        <div><label>Tri des messages</label><select id="threadSortSelect">
-          <option value="asc" ${state.threadSortOrder === 'asc' ? 'selected' : ''}>Plus anciens en premier</option>
-          <option value="desc" ${state.threadSortOrder === 'desc' ? 'selected' : ''}>Plus récents en premier</option>
-        </select></div>
-      </div>
       <div class="influence-box" id="influenceBox"></div>
       <div class="influence-search" id="influenceSearch">
         <input type="text" id="profileSearchInput" placeholder="Chercher un profil influence (nom, handle)…" />
@@ -937,7 +1189,7 @@ async function renderDetail() {
       <textarea id="composerInput" placeholder="Écrire une réponse…"></textarea>
       <div id="attachPreviewBox"></div>
       <div class="row">
-        <div class="hint">« Enregistrer le brouillon » passe par la file de validation. « Envoyer directement » valide et envoie en un geste — utile pour une réponse déjà écrite à la main ; si l'envoi échoue (hors fenêtre 24h, canal non configuré…), le message reste enregistré comme brouillon, à valider depuis la file de validation. Pièce jointe (image, vidéo ou PDF — ex. étiquette de transport) : jointe au message, envoyée en plus du texte si les deux sont renseignés.</div>
+        <div class="hint" title="Enregistrer le brouillon : passe par la file de validation. Envoyer directement : valide et envoie en un geste, utile pour une réponse écrite à la main. Si l'envoi échoue (hors fenêtre 24 h, canal non configuré), le message reste en brouillon, à valider depuis la file. Pièce jointe : image, vidéo ou PDF, envoyée en plus du texte.">« Enregistrer le brouillon » passe par la file de validation. « Envoyer directement » valide et envoie en un geste — utile pour une réponse déjà écrite à la main ; si l'envoi échoue (hors fenêtre 24h, canal non configuré…), le message reste enregistré comme brouillon, à valider depuis la file de validation. Pièce jointe (image, vidéo ou PDF — ex. étiquette de transport) : jointe au message, envoyée en plus du texte si les deux sont renseignés.</div>
         <div class="composer-actions">
           <input type="file" id="attachmentFileInput" accept="image/*,video/mp4,video/quicktime,application/pdf" style="display:none;" />
           <button class="attach-btn" id="attachBtn" title="Joindre un fichier">📎</button>
@@ -947,6 +1199,36 @@ async function renderDetail() {
       </div>
     </div>
   `;
+
+  // Refonte 2026-09-18 : les champs du ticket et la fiche cliente vivent
+  // désormais dans la colonne de droite. Les identifiants ne changent pas,
+  // donc les gestionnaires posés plus bas (getElementById) fonctionnent
+  // exactement comme avant.
+  const sideCol = document.getElementById('sideCol');
+  if (sideCol) {
+    sideCol.innerHTML = `
+      <div class="side-card">
+        <h4>Ticket</h4>
+        <div class="side-field"><label>Statut</label><select id="statusSelect">${statusOptions}</select></div>
+        <div class="side-field"><label>Catégorie</label><select id="categorySelect">${catOptions}</select></div>
+        <div class="side-field"><label>Commande liée</label><input type="text" id="orderInput" value="${escapeHtml(t.related_order_number || '')}" placeholder="Ex. C294671" /></div>
+        <div class="side-field"><label>Assigné à</label><input type="text" id="assignedInput" value="${escapeHtml(t.assigned_to || '')}" placeholder="Ex. Luc" /></div>
+        <div class="side-field"><label>Tri des messages</label><select id="threadSortSelect">
+          <option value="asc" ${state.threadSortOrder === 'asc' ? 'selected' : ''}>Plus anciens en premier</option>
+          <option value="desc" ${state.threadSortOrder === 'desc' ? 'selected' : ''}>Plus récents en premier</option>
+        </select></div>
+      </div>
+      <div class="side-card">
+        <h4>Contact</h4>
+        ${t.contact_name ? `<div class="side-kv"><span>Nom</span><b>${escapeHtml(t.contact_name)}</b></div>` : ''}
+        ${t.contact_handle ? `<div class="side-kv"><span>Instagram</span><b>@${escapeHtml(t.contact_handle)}</b></div>` : ''}
+        ${t.contact_email ? `<div class="side-kv"><span>E-mail</span><b style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.contact_email)}</b></div>` : ''}
+        <div class="side-kv"><span>Canal</span><b>${channelBadgeHtml(t.channel)}</b></div>
+        <div class="side-kv"><span>Créé le</span><b>${escapeHtml(fmtDate(t.created_at))}</b></div>
+        ${t.related_order_number ? `<div class="side-kv"><span>Commande</span><b>${escapeHtml(t.related_order_number)}</b></div>` : ''}
+      </div>
+    `;
+  }
 
   document.getElementById('statusSelect').onchange = (e) => patchTicket({ status: e.target.value });
   document.getElementById('categorySelect').onchange = (e) => patchTicket({ category: e.target.value });
@@ -1391,7 +1673,7 @@ async function toggleArchiveTicket() {
     // un panneau ouvert sur un ticket qui n'est plus dans la liste.
     if (archiving || state.showArchived) {
       state.selectedTicket = null;
-      document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+      clearDetailAndSide();
     }
   } catch (err) {
     // déjà notifié par patchTicket
@@ -1409,7 +1691,7 @@ async function deleteTicketConfirm() {
   try {
     await api('/api/tickets/' + t.id, { method: 'DELETE' });
     state.selectedTicket = null;
-    document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+    clearDetailAndSide();
     await loadTickets();
     toast('Ticket supprimé définitivement.');
   } catch (err) {
@@ -2328,7 +2610,7 @@ function toggleArchivedView() {
   document.getElementById('archivedToggleBtn').classList.toggle('active', state.showArchived);
   document.getElementById('archivedToggleBtn').textContent = state.showArchived ? '📥 Boîte' : '📦 Archivés';
   state.selectedTicket = null;
-  document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+  clearDetailAndSide();
   loadTickets();
 }
 document.getElementById('archivedToggleBtn').onclick = toggleArchivedView;
@@ -2346,7 +2628,7 @@ function initTenantSwitch() {
       state.category = '';
       state.status = '';
       resetQueueSelection();
-      document.getElementById('detailCol').innerHTML = '<div class="empty" style="margin-top:60px;">Sélectionne un ticket dans la liste, ou crée-en un nouveau.</div>';
+      clearDetailAndSide();
       await loadTaxonomy();
       renderNav();
       if (state.view === 'queue') { await loadQueue(); } else { await loadTickets(); }
@@ -2401,6 +2683,88 @@ document.getElementById('addStatusBtn').onclick = () => addOption('status', 'new
 document.getElementById('addCategoryBtn').onclick = () => addOption('category', 'newCategoryInput');
 document.getElementById('newStatusInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addOption('status', 'newStatusInput'); });
 document.getElementById('newCategoryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addOption('category', 'newCategoryInput'); });
+
+// ---------- Colonnes redimensionnables et menu « ⋯ » (refonte 2026-09-18) ----------
+// Chaque séparation se tire à la souris ; double-clic = largeur d'origine ;
+// ‹ / › replient le rail et la fiche cliente. Les largeurs et les colonnes
+// repliées sont mémorisées par navigateur (localStorage), et restaurées à
+// l'ouverture. Si localStorage est indisponible (navigation privée), on
+// retombe simplement sur les largeurs par défaut.
+(function initLayoutControls() {
+  const app = document.getElementById('app');
+  const root = document.documentElement;
+  const LIMITS = { rail: [170, 360], list: [280, 640], side: [240, 520] };
+  const DEFAULTS = { rail: 232, list: 372, side: 316 };
+  const VAR = { rail: '--w-rail', list: '--w-list', side: '--w-side' };
+  const KEY = 'msav_layout_v2';
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; }
+  }
+  function save(patch) {
+    try { localStorage.setItem(KEY, JSON.stringify({ ...load(), ...patch })); } catch (e) { /* ignoré */ }
+  }
+  function current(edge) {
+    return parseInt(getComputedStyle(root).getPropertyValue(VAR[edge]), 10) || DEFAULTS[edge];
+  }
+  function setWidth(edge, px, persist) {
+    const [min, max] = LIMITS[edge];
+    const v = Math.min(max, Math.max(min, Math.round(px)));
+    root.style.setProperty(VAR[edge], v + 'px');
+    if (persist) save({ [edge]: v });
+  }
+  function fold(which, on, persist) {
+    app.classList.toggle('no-' + which, on);
+    const btn = document.getElementById(which === 'rail' ? 'showRail' : 'showSide');
+    if (btn) btn.hidden = !on;
+    if (persist) save({ ['fold_' + which]: on });
+  }
+
+  // restauration
+  const saved = load();
+  ['rail', 'list', 'side'].forEach((edge) => { if (saved[edge]) setWidth(edge, saved[edge], false); });
+  if (saved.fold_rail) fold('rail', true, false);
+  if (saved.fold_side) fold('side', true, false);
+
+  document.querySelectorAll('.handle').forEach((handle) => {
+    const edge = handle.dataset.edge;
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      handle.classList.add('active');
+      document.body.classList.add('resizing');
+      const startX = e.clientX;
+      const startW = current(edge);
+      const move = (ev) => setWidth(edge, edge === 'side' ? startW - (ev.clientX - startX) : startW + (ev.clientX - startX), false);
+      const up = () => {
+        handle.classList.remove('active');
+        document.body.classList.remove('resizing');
+        save({ [edge]: current(edge) });
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    handle.addEventListener('dblclick', () => setWidth(edge, DEFAULTS[edge], true));
+  });
+
+  const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+  bind('foldRail', () => fold('rail', true, true));
+  bind('showRail', () => fold('rail', false, true));
+  bind('foldSide', () => fold('side', true, true));
+  bind('showSide', () => fold('side', false, true));
+
+  // Menu « ⋯ » : ouvert au clic, fermé au clic ailleurs ou sur Échap.
+  const menuBtn = document.getElementById('moreMenuBtn');
+  const menu = document.getElementById('moreMenu');
+  if (menuBtn && menu) {
+    menuBtn.onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+    menu.addEventListener('click', () => { menu.hidden = true; });
+    document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true; });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') menu.hidden = true; });
+  }
+})();
 
 async function init() {
   initTenantSwitch();
