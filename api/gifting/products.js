@@ -24,7 +24,9 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
     return;
   }
   try {
-    const products = await searchProducts({ shopDomain: tenant.myshopify_domain, query: q, limit: 6 });
+    // 18/09 : `tenant` passé pour lire le stock sur l'API Admin (jeton lecture
+    // seule) et non sur la vitrine publique, qui répondait « épuisé » partout.
+    const products = await searchProducts({ shopDomain: tenant.myshopify_domain, tenant, query: q, limit: 6 });
     sendJson(res, 200, { products });
   } catch (err) {
     sendJson(res, 502, { error: err.code || 'shop_unreachable' });
