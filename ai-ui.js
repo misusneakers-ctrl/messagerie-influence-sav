@@ -133,6 +133,7 @@
       ${a ? `<span class="badge badge-ai">${escapeHtml(SENTIMENTS[a.sentiment] || a.sentiment || '')}</span>
       <span class="badge badge-ai">${escapeHtml(a.register || '')}</span>
       ${a.gifting_stage && a.gifting_stage !== 'hors_gifting' ? `<span class="badge badge-ai">gifting : ${escapeHtml(STAGES[a.gifting_stage] || a.gifting_stage)}</span>` : ''}
+      ${a.images_read ? `<span class="badge badge-ai">🖼 ${escapeHtml(a.images_read)} photo${a.images_read > 1 ? 's' : ''} lue${a.images_read > 1 ? 's' : ''}</span>` : ''}
       <span class="ai-muted">analysé ${escapeHtml(fmtDate(t.ai_analyzed_at))}${a.previous_category ? ` · reclassé depuis « ${escapeHtml(a.previous_category)} »` : ''}</span>`
       : '<span class="ai-muted">Conversation pas encore analysée.</span>'}
     </div>`);
