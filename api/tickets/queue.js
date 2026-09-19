@@ -9,9 +9,21 @@
 // (ai_alerts : client mécontent, stock à vérifier, envoi à préparer...), sa
 // justification (ai_rationale), le résumé de la conversation (ai_summary) et
 // les coordonnées d'envoi reçues (shipping_details) quand il y en a.
+//
+// Ajout 2026-09-18 (2e passe), demandé par Luc : « les messages sont en
+// clair, c'est très étrange… que ce soit mieux résumé ». Le dernier message
+// reçu partait brut vers l'écran, signature d'application et accents cassés
+// compris. Il est maintenant nettoyé et raccourci ici (lib/text/clean.js),
+// une fois, côté serveur — le texte intégral reste disponible dans la
+// conversation.
+//
+// Même passe : une conversation ARCHIVÉE ou FUSIONNÉE dans une autre ne doit
+// plus encombrer la file. Son brouillon y restait indéfiniment alors que Luc
+// l'avait déjà traitée ailleurs.
 const { withTenantHandler, sendJson } = require('../../lib/handler');
 const { withTenant } = require('../../lib/db');
 const instagram = require('../../lib/channels/instagram');
+const { cleanIncoming, excerpt } = require('../../lib/text/clean');
 
 module.exports = withTenantHandler(async (req, res, tenant) => {
   if (req.method !== 'GET') {
@@ -50,6 +62,8 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
        ) lig ON true
        LEFT JOIN tenant_influence_relations rel ON rel.id = t.influence_relation_id AND rel.tenant_id = $1
        WHERE t.tenant_id = $1
+         AND t.archived_at IS NULL
+         AND t.merged_into_ticket_id IS NULL
        ORDER BY tm.created_at ASC`,
       [tenant.id]
     );
@@ -97,7 +111,10 @@ module.exports = withTenantHandler(async (req, res, tenant) => {
       message_body: r.message_body,
       message_created_at: r.message_created_at,
       last_inbound_at: r.last_inbound_at,
+      // Texte brut conservé (l'écran ne l'affiche plus, mais il sert au
+      // débogage et à un éventuel « voir le message entier »).
       last_inbound_body: r.last_inbound_body,
+      last_inbound_excerpt: excerpt(cleanIncoming(r.last_inbound_body), 220),
       relationship_status: r.relationship_status,
       score_total: r.score_total,
       within_response_window: withinWindow,

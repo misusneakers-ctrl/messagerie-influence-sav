@@ -535,11 +535,30 @@
   .side-kv span{color:var(--muted);}
 
   /* ---------- file de validation ---------- */
-  .queue-view{background:var(--bg);}
-  .queue-toolbar{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--border);}
+  /* Correctif 2026-09-18, signalé par Luc : « je ne peux pas scroller pour
+     voir la suite des messages préparés ». La refonte en quatre colonnes a
+     mis #mainArea en `height:100vh; overflow:hidden`, et la file s'y
+     affichait en `display:block` sans hauteur propre : au-delà du premier
+     écran, les cartes étaient purement et simplement coupées — 24 brouillons
+     préparés, 5 visibles. La vue devient une colonne flex cadrée sur la
+     fenêtre, dont SEULE la liste défile (la barre d'outils et le bilan du
+     lot restent en place). Le basculement de vue pose display:flex, pas
+     display:block — voir setView(). */
+  .queue-view{background:var(--bg);height:100vh;flex-direction:column;min-height:0;overflow:hidden;}
+  .queue-view > .queue-toolbar{flex:0 0 auto;position:static;background:var(--panel);
+    border-bottom:1px solid var(--border);}
+  .queue-view > #queueSummary{flex:0 0 auto;}
+  .queue-view > .queue-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+    padding-bottom:40px;}
   .queue-tabs{background:var(--bg);border-radius:10px;}
   .queue-tabs button.active{background:var(--accent);color:#fff;}
   .queue-card{border-radius:var(--radius);border-color:var(--border-soft);}
+  /* Contexte de la conversation, au-dessus du brouillon : ce qu'Alice a
+     compris, puis le message reçu nettoyé (ajout 2026-09-18). */
+  .qc-quote{font-size:12.5px;color:var(--muted);margin-top:6px;padding-left:9px;
+    border-left:2px solid var(--border);white-space:pre-wrap;}
+  .qc-open{font-size:12px;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;}
+  .qc-open:hover{text-decoration:underline;}
 </style>
 </head>
 <body>
@@ -2396,6 +2415,14 @@ function alertLabel(code) {
   return { text: code, bad: false };
 }
 
+// Le brouillon doit se lire en entier sans défilement interne : la zone
+// s'ajuste à son contenu (plafonnée, pour que la carte suivante reste
+// visible).
+function ajusterHauteur(zone) {
+  zone.style.height = 'auto';
+  zone.style.height = Math.min(Math.max(zone.scrollHeight + 2, 64), 340) + 'px';
+}
+
 function renderQueueTabs() {
   const items = state.queue.items;
   const nMessagerie = items.filter((i) => i.group === 'messagerie').length;
@@ -2421,6 +2448,11 @@ function renderQueue() {
       const currentText = state.queue.edited.has(it.message_id) ? state.queue.edited.get(it.message_id) : it.message_body;
       const isEdited = state.queue.edited.has(it.message_id);
       const checked = state.queue.selected.has(it.message_id);
+      // Message reçu : extrait nettoyé côté serveur (signature d'application,
+      // accents cassés, gabarit du formulaire de contact). Repli sur le texte
+      // brut si l'API date d'avant ce correctif.
+      const extrait = it.last_inbound_excerpt
+        || (it.last_inbound_body ? String(it.last_inbound_body).replace(/\s+/g, ' ').trim().slice(0, 220) : '');
 
       const card = document.createElement('div');
       card.className = 'queue-card' + (it.sendable ? '' : ' unsendable');
@@ -2439,7 +2471,10 @@ function renderQueue() {
               ${fenetreBadge(it)}
             </div>
           </div>
-          ${it.last_inbound_body ? `<div class="qc-context">Dernier message reçu : "${escapeHtml(it.last_inbound_body)}"</div>` : ''}
+          <!-- Le résumé d'Alice, ses alertes et les coordonnées reçues sont
+               greffés ici par ai-ui.js (decorateQueue) : une seule source,
+               pas de doublon. -->
+          ${extrait ? `<div class="qc-quote" title="Message reçu, nettoyé — « Ouvrir la conversation » pour le texte entier">${escapeHtml(extrait)}</div>` : ''}
           <textarea data-id="${it.message_id}" class="${isEdited ? 'edited' : ''}">${escapeHtml(currentText)}</textarea>
           <div class="qc-alerts">
             ${it.alerts.map((a) => { const al = alertLabel(a); return `<span class="badge badge-alert${al.bad ? ' bad' : ''}">${escapeHtml(al.text)}</span>`; }).join('')}
@@ -2453,22 +2488,29 @@ function renderQueue() {
                  répondre ». Un clic : le brouillon est jeté ET la
                  conversation classée. -->
             <button class="btn" data-action="archive-ticket" data-id="${it.message_id}" title="Jeter le brouillon et classer la conversation">📦 Rien à répondre, archiver</button>
+            <!-- Ajout 2026-09-18 : ouvrir le fil complet quand l'extrait ne
+                 suffit pas, sans avoir à le retrouver dans la boîte. -->
+            <button class="qc-open" data-action="open-ticket" style="margin-left:8px;">Ouvrir la conversation →</button>
           </div>
         </div>
       `;
       card.querySelector('[data-action="delete-draft"]').onclick = (e) => deleteQueueDraft(it, e.currentTarget);
       card.querySelector('[data-action="archive-ticket"]').onclick = (e) => archiverDepuisFile(it, e.currentTarget);
+      card.querySelector('[data-action="open-ticket"]').onclick = () => { setView('inbox'); selectTicket(it.ticket_id); };
       card.querySelector('input[type="checkbox"]').onchange = (e) => {
         if (e.target.checked) state.queue.selected.add(it.message_id);
         else state.queue.selected.delete(it.message_id);
         updateQueueToolbar();
       };
-      card.querySelector('textarea').oninput = (e) => {
+      const zone = card.querySelector('textarea');
+      zone.oninput = (e) => {
         if (e.target.value === it.message_body) state.queue.edited.delete(it.message_id);
         else state.queue.edited.set(it.message_id, e.target.value);
         e.target.classList.toggle('edited', state.queue.edited.has(it.message_id));
+        ajusterHauteur(e.target);
       };
       listEl.appendChild(card);
+      ajusterHauteur(zone);
     });
   }
   updateQueueToolbar();
@@ -2522,9 +2564,23 @@ async function processQueueSelection() {
       method: 'POST',
       body: { items, approved_by: approvedBy },
     });
-    renderQueueSummary(data.summary, byId);
+    // Retrait immédiat de ce qui vient d'être envoyé (demandé par Luc le
+    // 18/09 : « lorsque tu les traites, il faut les retirer de la liste »).
+    // On n'attend pas le rechargement : la liste doit refléter le geste tout
+    // de suite. Les exclus et les erreurs restent, eux, bien visibles.
+    const restent = new Set([
+      ...data.summary.excluded.map((e) => e.message_id),
+      ...data.summary.errors.map((e) => e.message_id),
+    ]);
+    state.queue.items = state.queue.items.filter(
+      (i) => !state.queue.selected.has(i.message_id) || restent.has(i.message_id)
+    );
     resetQueueSelection();
+    renderQueue();
     await loadQueue();
+    // Le bilan du lot est affiché APRÈS le rechargement : loadQueue() vide la
+    // zone de bilan, et jusqu'ici il disparaissait aussitôt affiché.
+    renderQueueSummary(data.summary, byId);
     toast(`Lot traité : ${data.summary.sent} envoyé(s), ${data.summary.errors.length} erreur(s), ${data.summary.excluded.length} exclu(s).`, data.summary.errors.length > 0);
   } catch (err) {
     toast('Erreur : ' + err.message, true);
@@ -2742,8 +2798,11 @@ document.getElementById('syncAllBusinessBtn').onclick = syncAllBusinessProfiles;
 function setView(view) {
   state.view = view;
   document.getElementById('inboxView').style.display = view === 'inbox' ? 'grid' : 'none';
-  document.getElementById('queueView').style.display = view === 'queue' ? 'block' : 'none';
-  document.getElementById('campaignsView').style.display = view === 'campaigns' ? 'block' : 'none';
+  // `flex` et non `block` : la file et les campagnes sont des colonnes flex
+  // cadrées sur la fenêtre, dont seule la liste défile (correctif 2026-09-18,
+  // « je ne peux pas scroller pour voir la suite »).
+  document.getElementById('queueView').style.display = view === 'queue' ? 'flex' : 'none';
+  document.getElementById('campaignsView').style.display = view === 'campaigns' ? 'flex' : 'none';
   document.getElementById('searchWrap').style.display = view === 'inbox' ? 'block' : 'none';
   document.querySelectorAll('#viewSwitch button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   if (view === 'queue') {

@@ -704,8 +704,12 @@
         ${it.ai_alerts && it.ai_alerts.length ? `<div class="qc-alerts" style="margin-top:0;">${it.ai_alerts.map(aiAlertBadge).join('')}</div>` : ''}
         ${ship ? `<div>📦 Coordonnées reçues :<div class="qc-ship">${escapeHtml(ship)}</div></div>` : ''}
       `;
-      const alertsEl = card.querySelector('.qc-alerts');
-      (alertsEl || textarea).insertAdjacentElement('afterend', block);
+      // Changement 2026-09-18 : ce bloc passe AU-DESSUS du brouillon. Une
+      // carte se lit maintenant dans l'ordre où Luc en a besoin — ce qu'Alice
+      // a compris, ce que la cliente a écrit, puis la réponse à valider —
+      // au lieu de rejeter le contexte sous une réponse déjà lue.
+      const citation = card.querySelector('.qc-quote');
+      (citation || textarea).insertAdjacentElement('beforebegin', block);
     });
   }
 
